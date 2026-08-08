@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0
+
+- Richer federation UX: `creer.registryPeers` + `creer.showPeerStatus` settings
+- API: `fetchPeerStatus`, `probePeer`; federated fetch passes `peers` query
+- **Creer: Browse Federated Registry** — peer health summary, local/`$(cloud)` labels
+- **Creer: Manage Registry Peers** — add/remove setting peers, probe all (soft-fail)
+- Release polish: GitHub Release on tag with `.vsix` attached; [`RELEASE.md`](../RELEASE.md)
+
 ## 0.8.0
 
 - Federated multi-host registry: `GET /registry/federated`, `CREER_REGISTRY_PEERS`

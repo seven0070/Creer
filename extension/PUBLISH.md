@@ -19,7 +19,7 @@ npm run package
 # or: npx --yes @vscode/vsce package
 ```
 
-This runs `vsce package`, respects `.vscodeignore`, and includes production dependencies (e.g. `axios`) plus `media/icon.png`. Output: `creer-0.8.0.vsix` (version from `package.json`).
+This runs `vsce package`, respects `.vscodeignore`, and includes production dependencies (e.g. `axios`) plus `media/icon.png`. Output: `creer-0.9.0.vsix` (version from `package.json`).
 
 ### Publisher signing (human step)
 
@@ -37,8 +37,8 @@ Workflow: [`.github/workflows/release.yml`](../.github/workflows/release.yml)
 
 | Trigger | Behavior |
 |---|---|
-| Tag `v*` (e.g. `v0.8.0`) | Build + package `.vsix`, upload artifact |
-| `workflow_dispatch` | Same |
+| Tag `v*` (e.g. `v0.9.0`) | Build + package `.vsix`, upload artifact, create GitHub Release with `.vsix` attached |
+| `workflow_dispatch` | Build + package + artifact (no GitHub Release); publish only if secrets set |
 
 **Publish job** downloads the artifact and:
 
@@ -51,8 +51,8 @@ Configure secrets under **Settings → Secrets and variables → Actions** (neve
 Install locally for a smoke test:
 
 ```bash
-code --install-extension creer-0.8.0.vsix
-# or Cursor: cursor --install-extension creer-0.8.0.vsix
+code --install-extension creer-0.9.0.vsix
+# or Cursor: cursor --install-extension creer-0.9.0.vsix
 ```
 
 ## Publish to VS Marketplace
@@ -89,7 +89,7 @@ Optional: `npx @vscode/vsce publish -p "$VSCE_PAT"`.
    cd extension
    npx --yes ovsx publish
    # with an existing vsix:
-   # npx --yes ovsx publish creer-0.8.0.vsix
+   # npx --yes ovsx publish creer-0.9.0.vsix
    ```
 
 `npm run publish:ovsx` only documents this flow (exits non-zero so CI does not publish by accident).

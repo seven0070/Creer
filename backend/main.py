@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
@@ -31,12 +32,12 @@ from app.registry import (
     pack_download_bytes,
     registry_count,
 )
-from app.federation import list_federated, parse_peers
+from app.federation import list_federated, list_peer_status, parse_peers, probe_peer
 from app.github import create_github_repo
 from app.jobs import cancel_job, create_job, finish_job, is_cancelled
 from app.quality import has_errors, run_quality_gates
 
-VERSION = "0.8.0"
+VERSION = "0.9.0"
 
 app = FastAPI(title="Creer", version=VERSION)
 
@@ -91,6 +92,10 @@ class GitHubCreateRepoRequest(BaseModel):
 class PackInstallRequest(BaseModel):
     url: str = Field(..., min_length=1, max_length=2000)
     overwrite: bool = False
+
+
+class PeerProbeRequest(BaseModel):
+    url: str = Field(..., min_length=1, max_length=2000)
 
 
 def _check_pack_template_exclusive(
@@ -182,9 +187,35 @@ def registry(
 def registry_federated(
     q: str | None = Query(default=None, description="Search name/description/id/stack"),
     source: str = Query(default="all", description="bundled | installed | all"),
+    peers: str | None = Query(
+        default=None,
+        description="Comma-separated extra peer base URLs for this request only",
+    ),
 ):
     """Federated registry: local packs plus peer Creer registries."""
-    return list_federated(q=q, source=source, include_local=True)
+    extra = parse_peers(peers) if peers else None
+    return list_federated(
+        q=q, source=source, include_local=True, extra_peers=extra
+    )
+
+
+@app.get("/registry/peers")
+def registry_peers():
+    """Configured peer list plus live probe status for each peer."""
+    return {"peers": list_peer_status(), "configured": parse_peers()}
+
+
+@app.post("/registry/peers/probe")
+def registry_peers_probe(request: PeerProbeRequest):
+    """Ad-hoc probe of a single peer base URL."""
+    url = (request.url or "").strip().rstrip("/")
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise HTTPException(
+            status_code=400,
+            detail="url must use http or https with a host",
+        )
+    return probe_peer(url)
 
 
 @app.get("/registry/packs/{pack_id}")

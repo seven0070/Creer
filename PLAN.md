@@ -10,11 +10,12 @@
 - **v0.6** — Pack marketplace + remote URL install/delete, side-by-side conflict diffs, publish packaging
 - **v0.7** — Self-hosted pack registry (`/registry` + download), extension icon, Browse Pack Registry, release changelog
 - **v0.8** — Federated registry (`/registry/federated` + peers), Browse Federated Registry UI, GitHub Actions release + CI (artifact-first; signed publish when secrets exist)
+- **v0.9** — Peer status/probe UX (`creer.registryPeers`, Manage Registry Peers), federated browse enrichment, GitHub Release on tag + `RELEASE.md`
 
 ## Optional next
 
-- Human: configure `VSCE_PAT` / `OVSX_PAT` repository secrets for signed Marketplace / Open VSX publish
-- More registry peers / richer federation discovery UX
+- Human: configure `VSCE_PAT` / `OVSX_PAT` repository secrets; tag `v0.9.0` (see [`RELEASE.md`](RELEASE.md))
+- More peer discovery / registry auth
 
 ## Non-goals
 
