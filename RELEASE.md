@@ -1,4 +1,4 @@
-# Releasing Creer v0.9.0
+# Releasing Creer v1.0.0
 
 Exact steps for a human maintainer to cut a tagged release with GitHub Release + optional Marketplace / Open VSX publish.
 
@@ -15,28 +15,30 @@ Both are optional. If neither is set, the release workflow still builds the `.vs
 
 Never commit PATs. Prefer repo secrets over exporting tokens in shared shells.
 
+**Note:** Cloud agents cannot configure GitHub Actions secrets — a human must set `VSCE_PAT` / `OVSX_PAT` before signed Marketplace / Open VSX publish.
+
 ## 2. Bump & verify locally
 
 ```bash
-# Confirm extension version is 0.9.0
+# Confirm extension version is 1.0.0
 grep '"version"' extension/package.json
 
 cd extension
 npm ci
 npm run compile
 npm run package
-# → creer-0.9.0.vsix
+# → creer-1.0.0.vsix
 ```
 
-Smoke-test: `code --install-extension creer-0.9.0.vsix` (or Cursor equivalent) against a running backend.
+Smoke-test: `code --install-extension creer-1.0.0.vsix` (or Cursor equivalent) against a running backend.
 
-## 3. Tag v0.9.0 and push
+## 3. Tag v1.0.0 and push
 
 From a clean `main` (or the release commit):
 
 ```bash
-git tag -a v0.9.0 -m "Creer v0.9.0"
-git push origin v0.9.0
+git tag -a v1.0.0 -m "Creer v1.0.0"
+git push origin v1.0.0
 ```
 
 Tag pattern `v*` triggers [`.github/workflows/release.yml`](.github/workflows/release.yml).
@@ -51,6 +53,6 @@ You can also run the workflow via **Actions → Release → Run workflow** (`wor
 
 ## 5. After release
 
-- Confirm the GitHub Release page lists `creer-0.9.0.vsix`
-- If secrets were set, confirm Marketplace / Open VSX listing updated to 0.9.0
+- Confirm the GitHub Release page lists `creer-1.0.0.vsix`
+- If secrets were set, confirm Marketplace / Open VSX listing updated to 1.0.0
 - See [`extension/PUBLISH.md`](extension/PUBLISH.md) for manual `vsce` / `ovsx` publish from a laptop

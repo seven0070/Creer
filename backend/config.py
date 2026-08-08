@@ -13,3 +13,6 @@ CREER_PACKS_DIR = os.getenv("CREER_PACKS_DIR", "").strip() or None
 CREER_PUBLIC_BASE_URL = os.getenv("CREER_PUBLIC_BASE_URL", "").strip() or None
 # Comma-separated peer Creer registry base URLs for federation (v0.8+)
 CREER_REGISTRY_PEERS = os.getenv("CREER_REGISTRY_PEERS", "").strip() or None
+# Optional token for mutating registry/pack write endpoints (v1.0+)
+# When set, POST /packs/install, DELETE /packs/{id}, POST /registry/peers/probe require auth
+CREER_REGISTRY_TOKEN = os.getenv("CREER_REGISTRY_TOKEN", "").strip() or None

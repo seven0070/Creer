@@ -7,7 +7,12 @@ import {
 } from './marketplace';
 import { browseFederatedRegistryCommand, manageRegistryPeersCommand } from './registry';
 import { runScaffoldFlow } from './scaffold';
-import { clearGitHubToken, setGitHubToken } from './secrets';
+import {
+  clearGitHubToken,
+  clearRegistryToken,
+  setGitHubToken,
+  setRegistryToken,
+} from './secrets';
 
 export function activate(context: vscode.ExtensionContext) {
   registerConflictDiffProvider(context);
@@ -44,29 +49,60 @@ export function activate(context: vscode.ExtensionContext) {
     void vscode.window.showInformationMessage('Creer: GitHub token cleared from SecretStorage.');
   });
 
+  const setRegistryTok = vscode.commands.registerCommand(
+    'creer.setRegistryToken',
+    async () => {
+      const token = await vscode.window.showInputBox({
+        prompt:
+          'Creer registry write token (matches CREER_REGISTRY_TOKEN) — stored in SecretStorage',
+        placeHolder: 'registry token',
+        password: true,
+        ignoreFocusOut: true,
+      });
+      const trimmed = token?.trim();
+      if (!trimmed) {
+        return;
+      }
+      await setRegistryToken(context, trimmed);
+      void vscode.window.showInformationMessage(
+        'Creer: registry token saved to SecretStorage.'
+      );
+    }
+  );
+
+  const clearRegistryTok = vscode.commands.registerCommand(
+    'creer.clearRegistryToken',
+    async () => {
+      await clearRegistryToken(context);
+      void vscode.window.showInformationMessage(
+        'Creer: registry token cleared from SecretStorage.'
+      );
+    }
+  );
+
   const installPackFromUrl = vscode.commands.registerCommand(
     'creer.installPackFromUrl',
-    () => installPackFromUrlCommand()
+    () => installPackFromUrlCommand(context)
   );
 
   const browseMarketplace = vscode.commands.registerCommand(
     'creer.browseMarketplace',
-    () => browseMarketplaceCommand()
+    () => browseMarketplaceCommand(context)
   );
 
   const browseRegistry = vscode.commands.registerCommand(
     'creer.browseRegistry',
-    () => browseRegistryCommand()
+    () => browseRegistryCommand(context)
   );
 
   const browseFederatedRegistry = vscode.commands.registerCommand(
     'creer.browseFederatedRegistry',
-    () => browseFederatedRegistryCommand()
+    () => browseFederatedRegistryCommand(context)
   );
 
   const manageRegistryPeers = vscode.commands.registerCommand(
     'creer.manageRegistryPeers',
-    () => manageRegistryPeersCommand()
+    () => manageRegistryPeersCommand(context)
   );
 
   context.subscriptions.push(
@@ -74,6 +110,8 @@ export function activate(context: vscode.ExtensionContext) {
     createRepoFromChat,
     setToken,
     clearToken,
+    setRegistryTok,
+    clearRegistryTok,
     installPackFromUrl,
     browseMarketplace,
     browseRegistry,

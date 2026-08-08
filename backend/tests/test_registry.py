@@ -13,7 +13,7 @@ from app.packs import install_pack, uninstall_pack
 def test_health_registry_fields():
     c = TestClient(main.app)
     h = c.get("/health").json()
-    assert h["version"] == "0.9.0"
+    assert h["version"] == "1.0.0"
     assert h["registry_count"] >= 3
     assert "peers_configured" in h
 

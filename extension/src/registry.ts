@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import {
   fetchFederatedRegistry,
   fetchPeerStatus,
+  fetchRegistryDiscover,
   formatAxiosError,
   probePeer,
   type FederatedRegistryItem,
@@ -11,6 +12,7 @@ import {
   installFromResolvedUrl,
   isBundledSource,
 } from './marketplace';
+import { resolveRegistryToken } from './secrets';
 
 function peerHostLabel(peer: string | undefined): string | undefined {
   if (!peer?.trim()) {
@@ -56,10 +58,13 @@ async function saveRegistryPeersSetting(peers: string[]): Promise<void> {
 /**
  * Creer: Browse Federated Registry — GET /registry/federated, QuickPick, install.
  */
-export async function browseFederatedRegistryCommand(): Promise<void> {
+export async function browseFederatedRegistryCommand(
+  context: vscode.ExtensionContext
+): Promise<void> {
   const config = vscode.workspace.getConfiguration('creer');
   const showPeerStatus = config.get<boolean>('showPeerStatus') !== false;
   const registryPeers = config.get<string>('registryPeers') || '';
+  const federatedDiscover = config.get<boolean>('federatedDiscover') === true;
 
   const q = await vscode.window.showInputBox({
     prompt: 'Search federated registry (leave empty for all packs)',
@@ -101,13 +106,16 @@ export async function browseFederatedRegistryCommand(): Promise<void> {
     const federated = await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: 'Creer: loading federated registry…',
+        title: federatedDiscover
+          ? 'Creer: loading federated registry (discover)…'
+          : 'Creer: loading federated registry…',
         cancellable: false,
       },
       () =>
         fetchFederatedRegistry({
           q: q.trim() || undefined,
           peers: registryPeers.trim() || undefined,
+          discover: federatedDiscover || undefined,
         })
     );
     items = federated.items;
@@ -217,15 +225,45 @@ export async function browseFederatedRegistryCommand(): Promise<void> {
 
   await installFromResolvedUrl(
     item.name || item.id,
-    item.install_url || item.download_url
+    item.install_url || item.download_url,
+    context
   );
+}
+
+/**
+ * Discover one-hop peers via GET /registry/discover, falling back to federated?discover=true.
+ */
+async function discoverPeerUrls(): Promise<string[]> {
+  try {
+    const discovered = await fetchRegistryDiscover();
+    if (discovered.peers.length > 0) {
+      return discovered.peers;
+    }
+  } catch {
+    // Soft-fail: try federated discover instead.
+  }
+
+  const registryPeers = vscode.workspace
+    .getConfiguration('creer')
+    .get<string>('registryPeers') || '';
+  const federated = await fetchFederatedRegistry({
+    peers: registryPeers.trim() || undefined,
+    discover: true,
+  });
+  const fromPeers = (federated.peers ?? [])
+    .map((p) => (p.base_url || '').trim().replace(/\/$/, ''))
+    .filter(Boolean);
+  return [...new Set(fromPeers)];
 }
 
 /**
  * Creer: Manage Registry Peers — view/add/remove setting peers; probe via backend.
  */
-export async function manageRegistryPeersCommand(): Promise<void> {
+export async function manageRegistryPeersCommand(
+  context: vscode.ExtensionContext
+): Promise<void> {
   const settingPeers = parseRegistryPeersSetting();
+  const token = await resolveRegistryToken(context);
 
   let configured: string[] = [];
   let livePeers: PeerStatus[] = [];
@@ -267,7 +305,7 @@ export async function manageRegistryPeersCommand(): Promise<void> {
     lines.push('Backend peer endpoints unavailable (soft-fail). You can still edit creer.registryPeers.');
   }
 
-  type Action = 'add' | 'remove' | 'probe' | 'done';
+  type Action = 'add' | 'remove' | 'probe' | 'discover' | 'done';
   type ActionPick = vscode.QuickPickItem & { action?: Action };
 
   const actions: ActionPick[] = [
@@ -292,6 +330,11 @@ export async function manageRegistryPeersCommand(): Promise<void> {
         ? 'POST /registry/peers/probe for each setting peer'
         : 'Requires backend probe endpoint',
       action: 'probe',
+    },
+    {
+      label: '$(search) Discover peers (one hop)',
+      description: 'GET /registry/discover or federated?discover=true — offer to add',
+      action: 'discover',
     },
   ];
 
@@ -329,7 +372,7 @@ export async function manageRegistryPeersCommand(): Promise<void> {
           title: `Creer: probing ${trimmed}…`,
           cancellable: false,
         },
-        () => probePeer(trimmed)
+        () => probePeer(trimmed, { token })
       );
       ok = result.ok;
       probeError = result.error || undefined;
@@ -429,7 +472,7 @@ export async function manageRegistryPeersCommand(): Promise<void> {
             message: `${i + 1}/${targets.length} ${peerHostLabel(url) || url}`,
           });
           try {
-            const status = await probePeer(url);
+            const status = await probePeer(url, { token });
             results.push(formatPeerHealth(status).replace(/\$\([^)]+\)\s*/g, ''));
           } catch (err) {
             results.push(
@@ -442,6 +485,68 @@ export async function manageRegistryPeersCommand(): Promise<void> {
 
     void vscode.window.showInformationMessage(
       `Creer probe results:\n${results.join('\n')}`
+    );
+    return;
+  }
+
+  if (picked.action === 'discover') {
+    let discovered: string[] = [];
+    try {
+      discovered = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Creer: discovering peers (one hop)…',
+          cancellable: false,
+        },
+        () => discoverPeerUrls()
+      );
+    } catch (err) {
+      const message = formatAxiosError(err, 'Discovery unavailable');
+      void vscode.window.showWarningMessage(
+        `Creer: peer discovery not available (${message}).`
+      );
+      return;
+    }
+
+    if (discovered.length === 0) {
+      void vscode.window.showInformationMessage('Creer: no peers discovered.');
+      return;
+    }
+
+    const existing = new Set(parseRegistryPeersSetting());
+    const picks = discovered.map((url) => ({
+      label: url,
+      description: existing.has(url)
+        ? 'already in creer.registryPeers'
+        : peerHostLabel(url),
+      picked: !existing.has(url),
+    }));
+
+    const selected = await vscode.window.showQuickPick(picks, {
+      placeHolder: 'Select discovered peers to add to creer.registryPeers',
+      ignoreFocusOut: true,
+      canPickMany: true,
+    });
+    if (!selected || selected.length === 0) {
+      return;
+    }
+
+    const next = parseRegistryPeersSetting();
+    let added = 0;
+    for (const item of selected) {
+      const url = item.label.trim().replace(/\/$/, '');
+      if (url && !next.includes(url)) {
+        next.push(url);
+        added += 1;
+      }
+    }
+    if (added > 0) {
+      await saveRegistryPeersSetting(next);
+    }
+    void vscode.window.showInformationMessage(
+      added > 0
+        ? `Creer: added ${added} discovered peer(s) to creer.registryPeers.`
+        : 'Creer: selected peers were already in creer.registryPeers.'
     );
   }
 }

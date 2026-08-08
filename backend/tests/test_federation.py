@@ -64,7 +64,7 @@ def test_list_federated_mocked_peer(monkeypatch):
     monkeypatch.setattr(fed, "_fetch_peer_registry", fake_fetch)
 
     result = list_federated()
-    assert result["version"] == "0.9.0"
+    assert result["version"] == "1.0.0"
     assert "items" in result["local"]
     assert len(result["peers"]) == 1
     assert result["peers"][0]["ok"] is True
@@ -95,7 +95,7 @@ def test_peer_failure_keeps_local(monkeypatch):
     monkeypatch.setattr(fed, "_fetch_peer_registry", fake_fetch)
 
     result = list_federated()
-    assert result["version"] == "0.9.0"
+    assert result["version"] == "1.0.0"
     local_count = len(result["local"]["items"])
     assert local_count >= 3
     assert len(result["items"]) == local_count
@@ -134,8 +134,8 @@ def test_health_0_9_and_federated_route(monkeypatch):
     # Also patch config import used if parse_peers reads module-level — already patched fed
     c = TestClient(main.app)
     h = c.get("/health").json()
-    assert h["version"] == "0.9.0"
-    assert VERSION == "0.9.0"
+    assert h["version"] == "1.0.0"
+    assert VERSION == "1.0.0"
     assert h["peers_configured"] == 2
 
     # No live peers — empty mock via monkeypatch on fetch
@@ -147,7 +147,7 @@ def test_health_0_9_and_federated_route(monkeypatch):
     r = c.get("/registry/federated")
     assert r.status_code == 200
     body = r.json()
-    assert body["version"] == "0.9.0"
+    assert body["version"] == "1.0.0"
     assert "local" in body
     assert len(body["items"]) == len(body["local"]["items"])
 
