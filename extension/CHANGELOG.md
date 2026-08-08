@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0
+
+- Optional TLS/mTLS for peer HTTP (`CREER_SSL_*`, `peer_httpx_client`)
+- Docker Compose multi-peer demo + `scripts/gen-dev-certs.sh` / `run_backend.sh`
+- Docs: `docs/MTLS.md`
+
 ## 1.2.0
 
 HMAC peer trust UX: surface backend `trust` / `trust_status` and optionally hide unsigned peers.

@@ -47,3 +47,24 @@ CREER_ALLOW_PRIVATE_PEERS = os.getenv("CREER_ALLOW_PRIVATE_PEERS", "").lower() i
 CREER_PEER_TRUST_SECRET = os.getenv("CREER_PEER_TRUST_SECRET", "").strip()
 # Peer trust verification mode: off | optional | required (default off)
 CREER_PEER_TRUST_MODE = os.getenv("CREER_PEER_TRUST_MODE", "off").strip().lower() or "off"
+
+# Optional TLS for uvicorn / peer mTLS (v1.3+)
+CREER_SSL_CERTFILE = os.getenv("CREER_SSL_CERTFILE", "").strip() or None
+CREER_SSL_KEYFILE = os.getenv("CREER_SSL_KEYFILE", "").strip() or None
+CREER_SSL_CA_CERTS = os.getenv("CREER_SSL_CA_CERTS", "").strip() or None
+CREER_SSL_CLIENT_CERT = os.getenv("CREER_SSL_CLIENT_CERT", "").strip() or None
+CREER_SSL_CLIENT_KEY = os.getenv("CREER_SSL_CLIENT_KEY", "").strip() or None
+# Verify peer TLS certificates (default true). Set false only for broken local experiments.
+CREER_SSL_VERIFY = os.getenv("CREER_SSL_VERIFY", "true").lower() not in (
+    "0",
+    "false",
+    "no",
+)
+
+
+def tls_server_configured() -> bool:
+    return bool(CREER_SSL_CERTFILE and CREER_SSL_KEYFILE)
+
+
+def mtls_client_configured() -> bool:
+    return bool(CREER_SSL_CLIENT_CERT and CREER_SSL_CLIENT_KEY)

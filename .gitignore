@@ -7,3 +7,8 @@
 **/out/
 *.pyc
 .pytest_cache/
+certs/*.pem
+certs/*.key
+certs/*.csr
+certs/*.srl
+!certs/.gitkeep

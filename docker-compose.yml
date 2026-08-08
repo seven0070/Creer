@@ -1,0 +1,28 @@
+# Creer local multi-peer demo (HTTP). For TLS/mTLS see docs/MTLS.md.
+services:
+  creer-a:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      CREER_OFFLINE: "1"
+      CREER_ALLOW_PRIVATE_PEERS: "1"
+      CREER_PEER_TRUST_SECRET: "devsecret"
+      CREER_PEER_TRUST_MODE: "optional"
+      CREER_REGISTRY_PEERS: "http://creer-b:8000"
+      CREER_PUBLIC_BASE_URL: "http://localhost:8000"
+    volumes:
+      - ./backend/packs:/app/packs
+
+  creer-b:
+    build: ./backend
+    ports:
+      - "8001:8000"
+    environment:
+      CREER_OFFLINE: "1"
+      CREER_ALLOW_PRIVATE_PEERS: "1"
+      CREER_PEER_TRUST_SECRET: "devsecret"
+      CREER_PEER_TRUST_MODE: "optional"
+      CREER_PUBLIC_BASE_URL: "http://localhost:8001"
+    volumes:
+      - ./backend/packs:/app/packs
