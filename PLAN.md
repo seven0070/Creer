@@ -13,11 +13,12 @@
 - **v0.9** — Peer status/probe UX (`creer.registryPeers`, Manage Registry Peers), federated browse enrichment, GitHub Release on tag + `RELEASE.md`
 - **v1.0** — Stable foundation: optional registry write auth (Bearer / `X-Creer-Token`), `GET /registry/discover`, federated `discover=true`, SecretStorage registry token + Discover peers UX
 - **v1.1** — Discovery hardening: peer policy (SSRF / private IP blocks, allow/deny, max hops); extension surfaces policy errors, `creer.federationMaxHops` / `creer.warnPrivatePeers`, blocked-discover UX
+- **v1.2** — HMAC peer trust: backend `trust` blocks + peer_meta `trust_status` (`signed` | `unsigned` | `invalid` | `skipped`); extension `creer.requireSignedPeers`, trust badges/summaries; env `CREER_PEER_TRUST_SECRET` + `CREER_PEER_TRUST_MODE`
 
 ## Optional next
 
-- Human: configure `VSCE_PAT` / `OVSX_PAT` repository secrets; tag `v1.1.0` (see [`RELEASE.md`](RELEASE.md)) — agents cannot set GitHub Actions secrets
-- Signed peer trust / mutual TLS between registries
+- Human: configure `VSCE_PAT` / `OVSX_PAT` repository secrets; tag `v1.2.0` (see [`RELEASE.md`](RELEASE.md)) — agents cannot set GitHub Actions secrets
+- Mutual TLS between registries (optional future / human infra — not required for HMAC peer trust)
 
 ## Non-goals
 

@@ -15,6 +15,7 @@ from app.packs import (
     list_packs,
     marketplace_catalog,
 )
+from app.peer_trust import sign_payload
 
 
 def _download_path(pack_id: str) -> str:
@@ -101,11 +102,13 @@ def list_registry(
 
         items = [i for i in items if matches(i)]
 
-    return {
-        "version": "1.0.0",
-        "base_url": CREER_PUBLIC_BASE_URL or None,
-        "items": items,
-    }
+    return sign_payload(
+        {
+            "version": "1.2.0",
+            "base_url": CREER_PUBLIC_BASE_URL or None,
+            "items": items,
+        }
+    )
 
 
 def get_registry_pack(pack_id: str) -> dict[str, Any] | None:

@@ -2,7 +2,7 @@
 
 AI-powered repo scaffolding inside your workspace.
 
-**Current version: 1.1.0** (discovery hardening)
+**Current version: 1.2.0** (HMAC peer trust)
 
 ## Architecture
 
@@ -26,17 +26,17 @@ cd extension && npm install && npm run compile
 # F5 → Creer: Create New Repo
 ```
 
-## Registry & federation (v0.7–v1.1)
+## Registry & federation (v0.7–v1.2)
 
-Self-hosted pack catalog plus optional multi-host federation, write auth, and peer policy:
+Self-hosted pack catalog plus optional multi-host federation, write auth, peer policy, and HMAC peer trust:
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/registry?q=&source=` | Searchable pack list |
-| `GET` | `/registry/federated?q=&source=&peers=&discover=&max_hops=` | Local + peer merge; `discover=true` expands peers; `max_hops` caps hop depth (0–2) |
-| `GET` | `/registry/discover` | Peer discovery (policy-filtered in v1.1+) |
-| `GET` | `/registry/peers` | Peer health + configured URLs |
-| `POST` | `/registry/peers/probe` | Probe one peer `{ url }` (auth when configured; may 400 on policy) |
+| `GET` | `/registry?q=&source=` | Searchable pack list (may include a `trust` block when signing is enabled) |
+| `GET` | `/registry/federated?q=&source=&peers=&discover=&max_hops=` | Local + peer merge; `discover=true` expands peers; `max_hops` caps hop depth (0–2); peers carry `trust_status` |
+| `GET` | `/registry/discover` | Peer discovery (policy-filtered; may include a `trust` block) |
+| `GET` | `/registry/peers` | Peer health + configured URLs (+ trust when verified) |
+| `POST` | `/registry/peers/probe` | Probe one peer `{ url }` (auth when configured; may 400 on policy; may include trust) |
 | `GET` | `/registry/packs/{id}` | Pack metadata |
 | `GET` | `/registry/packs/{id}/download` | Portable JSON pack (installable URL) |
 | `GET` | `/marketplace` | Curated featured view |
@@ -56,9 +56,20 @@ Backend peer/federation policy (SSRF and private-IP hardening). The extension su
 | `CREER_PEER_DENYLIST` | Comma-separated hostnames/URLs always blocked |
 | `CREER_ALLOW_PRIVATE_PEERS` | When true (`1`/`true`/`yes`), allow loopback/private/link-local peers (default off) |
 
-Extension settings: `creer.registryPeers`, `creer.showPeerStatus`, `creer.federatedDiscover` (`discover=true`), `creer.federationMaxHops` (`max_hops`), `creer.warnPrivatePeers`, `creer.registryToken` (deprecated plaintext — prefer SecretStorage).
+### HMAC peer trust env vars (v1.2)
 
-Commands: **Browse Federated Registry**, **Manage Registry Peers** (Discover peers; private-host warning; policy-blocked suggestions), **Set / Clear Registry Token**.
+Shared-secret HMAC-SHA256 signing/verification for peer registry and discover responses. Federated `peer_meta` (and probe) include `trust_status`: `signed` | `unsigned` | `invalid` | `skipped`. Signed responses attach a `trust` block `{ alg: "HMAC-SHA256", kid: "default", sig: "<hex>" }`.
+
+| Env | Purpose |
+|---|---|
+| `CREER_PEER_TRUST_SECRET` | Shared HMAC secret used to sign outbound registry/discover and verify peer payloads. Empty = signing/verification disabled. |
+| `CREER_PEER_TRUST_MODE` | `off` (default) \| `optional` \| `required`. `off`: never verify (outbound still signed when secret set). `optional`: verify when a signature is present; accept unsigned; mark `trust_status`. `required`: reject peer payloads without a valid HMAC (treated as fetch error). |
+
+Mutual TLS between registries remains an **optional future** concern and is left to human/infra configuration — HMAC peer trust does not require mTLS.
+
+Extension settings: `creer.registryPeers`, `creer.showPeerStatus`, `creer.federatedDiscover` (`discover=true`), `creer.federationMaxHops` (`max_hops`), `creer.warnPrivatePeers`, `creer.requireSignedPeers` (client-side filter of unsigned/invalid/skipped peer packs), `creer.registryToken` (deprecated plaintext — prefer SecretStorage).
+
+Commands: **Browse Federated Registry**, **Manage Registry Peers** (Discover peers; private-host warning; policy-blocked suggestions; trust badges), **Set / Clear Registry Token**.
 
 Install from another Creer host:
 
@@ -72,6 +83,7 @@ Set `CREER_PUBLIC_BASE_URL` for absolute download links in registry responses.
 Set `CREER_REGISTRY_PEERS` for backend-configured federated discovery.
 Set `CREER_REGISTRY_TOKEN` to require write auth on install/delete/probe.
 Use `creer.registryPeers` in the extension for client-side extra peers when browsing.
+Set matching `CREER_PEER_TRUST_SECRET` (and `CREER_PEER_TRUST_MODE`) on peers to enable HMAC trust; enable `creer.requireSignedPeers` in the extension to hide unsigned peer packs.
 
 ## Extension commands
 
@@ -96,7 +108,7 @@ See [`RELEASE.md`](RELEASE.md) and [`extension/PUBLISH.md`](extension/PUBLISH.md
 
 ```bash
 cd extension && npm run compile && npm run package
-# → creer-1.1.0.vsix (includes media/icon.png)
+# → creer-1.2.0.vsix (includes media/icon.png)
 ```
 
 Signed Marketplace / Open VSX publish requires your own `VSCE_PAT` / `OVSX_PAT` (never commit tokens). Agents cannot set GitHub Actions secrets — that remains a human step.

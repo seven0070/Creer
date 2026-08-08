@@ -17,9 +17,10 @@ from app.peer_policy import (
     normalize_peer_url,
     policy_summary,
 )
+from app.peer_trust import evaluate_peer_trust, sign_payload, trust_mode
 from app.registry import list_registry, registry_count
 
-FEDERATION_VERSION = "1.1.0"
+FEDERATION_VERSION = "1.2.0"
 _MAX_PEERS = 8
 _DISCOVER_TIMEOUT = 3.0
 
@@ -76,14 +77,16 @@ def resolve_peers(extra_peers: list[str] | None = None) -> list[str]:
 
 def discover_self() -> dict[str, Any]:
     """Local gossip-lite discovery payload (configured peers only)."""
-    return {
-        "version": FEDERATION_VERSION,
-        "base_url": CREER_PUBLIC_BASE_URL or None,
-        "packs_count": registry_count(),
-        "peers": parse_peers(),
-        "auth_required": registry_auth_required(),
-        "policy": policy_summary(),
-    }
+    return sign_payload(
+        {
+            "version": FEDERATION_VERSION,
+            "base_url": CREER_PUBLIC_BASE_URL or None,
+            "packs_count": registry_count(),
+            "peers": parse_peers(),
+            "auth_required": registry_auth_required(),
+            "policy": policy_summary(),
+        }
+    )
 
 
 def _absolutize_url(base_url: str, value: Any) -> Any:
@@ -112,6 +115,15 @@ def _tag_peer_items(base_url: str, items: list[dict[str, Any]]) -> list[dict[str
     return tagged
 
 
+def _unpack_fetch_result(
+    result: tuple[Any, ...],
+) -> tuple[list[dict[str, Any]], str | None, str | None]:
+    """Support both legacy (items, err) and (items, err, trust_status) returns."""
+    if len(result) >= 3:
+        return result[0], result[1], result[2]
+    return result[0], result[1], None
+
+
 def fetch_peer_registry(
     base_url: str,
     *,
@@ -124,7 +136,9 @@ def fetch_peer_registry(
 
     On any failure returns [] (never raises for federation callers).
     """
-    items, _err = _fetch_peer_registry(base_url, q=q, source=source, timeout=timeout)
+    items, _err, _trust = _unpack_fetch_result(
+        _fetch_peer_registry(base_url, q=q, source=source, timeout=timeout)
+    )
     return items
 
 
@@ -134,15 +148,21 @@ def _fetch_peer_registry(
     q: str | None = None,
     source: str | None = None,
     timeout: float = 8.0,
-) -> tuple[list[dict[str, Any]], str | None]:
+) -> tuple[list[dict[str, Any]], str | None, str | None]:
+    """
+    Fetch peer registry.
+
+    Returns (items, error, trust_status). trust_status may be None on transport errors
+    before JSON verification.
+    """
     base = (base_url or "").strip().rstrip("/")
     if not base:
-        return [], "empty base_url"
+        return [], "empty base_url", None
 
     try:
         assert_peer_allowed(base)
     except ValueError as exc:
-        return [], str(exc)
+        return [], str(exc), None
 
     params: dict[str, str] = {}
     if q:
@@ -157,19 +177,27 @@ def _fetch_peer_registry(
             resp.raise_for_status()
             data = resp.json()
     except Exception as exc:  # noqa: BLE001 — federation must never crash
-        return [], str(exc)
+        return [], str(exc), None
 
+    trust_status: str | None = None
     if isinstance(data, dict):
+        trust_status, trust_err = evaluate_peer_trust(data)
+        if trust_err is not None:
+            return [], trust_err, trust_status
         raw_items = data.get("items") or []
     elif isinstance(data, list):
+        # Bare list has no trust block — evaluate as unsigned empty object context
+        trust_status, trust_err = evaluate_peer_trust({})
+        if trust_err is not None:
+            return [], trust_err, trust_status
         raw_items = data
     else:
-        return [], "unexpected registry response shape"
+        return [], "unexpected registry response shape", None
 
     if not isinstance(raw_items, list):
-        return [], "unexpected registry items shape"
+        return [], "unexpected registry items shape", trust_status
 
-    return _tag_peer_items(base, raw_items), None
+    return _tag_peer_items(base, raw_items), None, trust_status
 
 
 def fetch_peer_discover(
@@ -181,6 +209,7 @@ def fetch_peer_discover(
     GET {base}/registry/discover.
 
     Returns (payload, None) on success or (None, error) on failure. Never raises.
+    On success, payload may include trust_status from verification.
     """
     base = (base_url or "").strip().rstrip("/")
     if not base:
@@ -202,7 +231,14 @@ def fetch_peer_discover(
 
     if not isinstance(data, dict):
         return None, "unexpected discover response shape"
-    return data, None
+
+    trust_status, trust_err = evaluate_peer_trust(data)
+    if trust_err is not None:
+        return None, trust_err
+
+    out = dict(data)
+    out["trust_status"] = trust_status
+    return out, None
 
 
 def expand_peers(
@@ -303,6 +339,7 @@ def probe_peer(base_url: str, timeout: float = 5.0) -> dict[str, Any]:
     Probe a peer host via /health (preferred) and/or /registry for pack count.
 
     Never raises — returns a status dict with ok/latency/count/version/error.
+    Includes trust_status when /registry JSON is available for verification.
     """
     base = (base_url or "").strip().rstrip("/")
     result: dict[str, Any] = {
@@ -312,6 +349,7 @@ def probe_peer(base_url: str, timeout: float = 5.0) -> dict[str, Any]:
         "count": None,
         "version": None,
         "error": None,
+        "trust_status": None,
     }
     if not base:
         result["error"] = "empty base_url"
@@ -333,6 +371,7 @@ def probe_peer(base_url: str, timeout: float = 5.0) -> dict[str, Any]:
     count: int | None = None
     health_ok = False
     last_error: str | None = None
+    trust_status: str | None = None
 
     try:
         with httpx.Client(timeout=timeout, follow_redirects=True) as client:
@@ -354,13 +393,23 @@ def probe_peer(base_url: str, timeout: float = 5.0) -> dict[str, Any]:
             except Exception as exc:  # noqa: BLE001
                 last_error = str(exc)
 
-            # Use /registry for count (and version fallback) when needed
-            if count is None or version is None:
+            # Use /registry for count/version fallback; also when trust mode needs verify.
+            need_registry = count is None or version is None or trust_mode() != "off"
+            if need_registry:
                 try:
                     rresp = client.get(f"{base}/registry")
                     rresp.raise_for_status()
                     rdata = rresp.json()
                     if isinstance(rdata, dict):
+                        trust_status, trust_err = evaluate_peer_trust(rdata)
+                        if trust_err is not None:
+                            latency_ms = round((time.perf_counter() - started) * 1000, 1)
+                            result["latency_ms"] = latency_ms
+                            result["ok"] = False
+                            result["trust_status"] = trust_status
+                            result["error"] = trust_err
+                            result["version"] = version
+                            return result
                         if version is None:
                             ver = rdata.get("version")
                             if isinstance(ver, str):
@@ -368,16 +417,30 @@ def probe_peer(base_url: str, timeout: float = 5.0) -> dict[str, Any]:
                         if count is None:
                             raw_items = rdata.get("items") or []
                             count = len(raw_items) if isinstance(raw_items, list) else 0
-                    elif isinstance(rdata, list) and count is None:
-                        count = len(rdata)
+                    elif isinstance(rdata, list):
+                        trust_status, trust_err = evaluate_peer_trust({})
+                        if trust_err is not None:
+                            latency_ms = round((time.perf_counter() - started) * 1000, 1)
+                            result["latency_ms"] = latency_ms
+                            result["ok"] = False
+                            result["trust_status"] = trust_status
+                            result["error"] = trust_err
+                            result["version"] = version
+                            return result
+                        if count is None:
+                            count = len(rdata)
                 except Exception as exc:  # noqa: BLE001
                     if not health_ok:
                         last_error = str(exc)
                     elif last_error is None:
                         last_error = str(exc)
 
+            if trust_status is None and trust_mode() == "off":
+                trust_status = "skipped"
+
             latency_ms = round((time.perf_counter() - started) * 1000, 1)
             result["latency_ms"] = latency_ms
+            result["trust_status"] = trust_status
 
             if health_ok or count is not None:
                 result["ok"] = True
@@ -434,16 +497,18 @@ def list_federated(
     peer_meta: list[dict[str, Any]] = []
     peer_items_by_url: dict[str, list[dict[str, Any]]] = {}
 
-    def _one(peer: str) -> tuple[str, list[dict[str, Any]], str | None]:
-        items, err = _fetch_peer_registry(peer, q=q, source=source)
-        return peer, items, err
+    def _one(peer: str) -> tuple[str, list[dict[str, Any]], str | None, str | None]:
+        items, err, trust_status = _unpack_fetch_result(
+            _fetch_peer_registry(peer, q=q, source=source)
+        )
+        return peer, items, err, trust_status
 
     if peers:
         workers = min(8, len(peers))
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {pool.submit(_one, p): p for p in peers}
             for fut in as_completed(futures):
-                peer, items, err = fut.result()
+                peer, items, err, trust_status = fut.result()
                 peer_items_by_url[peer] = items
                 peer_meta.append(
                     {
@@ -451,6 +516,7 @@ def list_federated(
                         "ok": err is None,
                         "count": len(items) if err is None else 0,
                         "error": err,
+                        "trust_status": trust_status,
                     }
                 )
         # Stable peer order matching resolve_peers() / expand order

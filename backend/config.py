@@ -43,3 +43,7 @@ CREER_ALLOW_PRIVATE_PEERS = os.getenv("CREER_ALLOW_PRIVATE_PEERS", "").lower() i
     "true",
     "yes",
 )
+# Shared HMAC secret for signed peer trust (v1.2). Empty = signing/verification disabled.
+CREER_PEER_TRUST_SECRET = os.getenv("CREER_PEER_TRUST_SECRET", "").strip()
+# Peer trust verification mode: off | optional | required (default off)
+CREER_PEER_TRUST_MODE = os.getenv("CREER_PEER_TRUST_MODE", "off").strip().lower() or "off"

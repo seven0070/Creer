@@ -247,10 +247,70 @@ export interface RegistryItem {
   install_url?: string;
 }
 
+/** HMAC peer trust verification outcome (v1.2+ peer_meta / probe). */
+export type PeerTrustStatus = 'signed' | 'unsigned' | 'invalid' | 'skipped';
+
+/**
+ * Optional `trust` block on discover / registry responses (v1.2+).
+ * Backend HMAC-SHA256 peer trust: `{ alg, kid, sig }`.
+ * mTLS remains optional future / human infra.
+ */
+export interface PeerTrustInfo {
+  /** Algorithm, e.g. HMAC-SHA256. */
+  alg?: string | null;
+  /** Key id, e.g. default. */
+  kid?: string | null;
+  /** Hex HMAC signature over the canonical payload (excluding trust). */
+  sig?: string | null;
+  /** Optional normalized status when nested on a response. */
+  status?: PeerTrustStatus | null;
+  /** Trust mode echo when present (off | optional | required). */
+  mode?: string | null;
+  /** Free-form notes from the backend. */
+  message?: string | null;
+  [key: string]: unknown;
+}
+
 export interface RegistryResponse {
   version: string;
   base_url?: string | null;
   items: RegistryItem[];
+  /** Optional HMAC trust block when the backend signs this registry (v1.2+). */
+  trust?: PeerTrustInfo | null;
+}
+
+/** Normalize backend trust_status strings; returns undefined when absent/unknown. */
+export function normalizeTrustStatus(raw: unknown): PeerTrustStatus | undefined {
+  if (typeof raw !== 'string') {
+    return undefined;
+  }
+  const value = raw.trim().toLowerCase();
+  if (
+    value === 'signed' ||
+    value === 'unsigned' ||
+    value === 'invalid' ||
+    value === 'skipped'
+  ) {
+    return value;
+  }
+  return undefined;
+}
+
+export function normalizeTrustInfo(raw: unknown): PeerTrustInfo | null | undefined {
+  if (raw === null) {
+    return null;
+  }
+  if (!raw || typeof raw !== 'object') {
+    return undefined;
+  }
+  const obj = raw as PeerTrustInfo;
+  const status = normalizeTrustStatus(obj.status) ?? normalizeTrustStatus(
+    (obj as { trust_status?: unknown }).trust_status
+  );
+  return {
+    ...obj,
+    status: status ?? obj.status ?? null,
+  };
 }
 
 /**
@@ -272,6 +332,7 @@ export async function fetchRegistry(options?: {
     version: response.data.version,
     base_url: response.data.base_url,
     items: response.data.items ?? [],
+    trust: normalizeTrustInfo(response.data.trust) ?? response.data.trust ?? null,
   };
 }
 
@@ -290,6 +351,13 @@ export interface FederatedRegistryPeer {
   blocked?: boolean;
   /** Optional policy reason / code from the backend. */
   policy?: string | null;
+  /**
+   * HMAC peer trust outcome from federated peer_meta (v1.2+):
+   * `signed` | `unsigned` | `invalid` | `skipped`.
+   */
+  trust_status?: PeerTrustStatus | null;
+  /** Optional nested trust block when the backend includes one. */
+  trust?: PeerTrustInfo | null;
 }
 
 /** Optional peer-policy snapshot returned by federated/discover responses (v1.1+). */
@@ -312,6 +380,7 @@ export interface FederatedRegistryResponse {
     version?: string;
     base_url?: string | null;
     items?: RegistryItem[];
+    trust?: PeerTrustInfo | null;
   };
   /** Configured peer hosts (reachable or not). */
   peers: FederatedRegistryPeer[];
@@ -321,6 +390,20 @@ export interface FederatedRegistryResponse {
   discovered_peers?: string[];
   /** Backend peer policy summary when present (v1.1+). */
   policy?: FederationPolicyInfo | null;
+  /** Optional top-level trust summary when present (v1.2+). */
+  trust?: PeerTrustInfo | null;
+}
+
+function normalizeFederatedPeer(raw: FederatedRegistryPeer): FederatedRegistryPeer {
+  const trust = normalizeTrustInfo(raw.trust);
+  const trustStatus =
+    normalizeTrustStatus(raw.trust_status) ??
+    (trust?.status ? normalizeTrustStatus(trust.status) : undefined);
+  return {
+    ...raw,
+    trust_status: trustStatus ?? raw.trust_status ?? null,
+    trust: trust ?? raw.trust ?? null,
+  };
 }
 
 /**
@@ -363,13 +446,25 @@ export async function fetchFederatedRegistry(options?: {
       },
     }
   );
+  const localRaw = response.data.local ?? { items: [] };
+  const local =
+    localRaw && typeof localRaw === 'object'
+      ? {
+          ...localRaw,
+          trust:
+            normalizeTrustInfo((localRaw as { trust?: unknown }).trust) ??
+            (localRaw as { trust?: PeerTrustInfo | null }).trust ??
+            null,
+        }
+      : localRaw;
   return {
     version: response.data.version,
-    local: response.data.local ?? { items: [] },
-    peers: response.data.peers ?? [],
+    local,
+    peers: (response.data.peers ?? []).map(normalizeFederatedPeer),
     items: response.data.items ?? [],
     discovered_peers: response.data.discovered_peers,
     policy: response.data.policy ?? null,
+    trust: normalizeTrustInfo(response.data.trust) ?? response.data.trust ?? null,
   };
 }
 
@@ -390,6 +485,8 @@ export interface RegistryDiscoverResponse {
   discovered?: string[];
   /** Backend peer policy summary when present (v1.1+). */
   policy?: FederationPolicyInfo | null;
+  /** Optional HMAC trust block on discover (v1.2+). */
+  trust?: PeerTrustInfo | null;
 }
 
 function normalizeDiscoverPeerEntry(entry: unknown): RegistryDiscoverPeer | undefined {
@@ -461,6 +558,7 @@ export async function fetchRegistryDiscover(): Promise<RegistryDiscoverResponse>
     data.policy && typeof data.policy === 'object'
       ? (data.policy as FederationPolicyInfo)
       : null;
+  const trust = normalizeTrustInfo(data.trust) ?? null;
   return {
     peers: merged.map((p) => p.url),
     peerDetails: merged,
@@ -469,6 +567,7 @@ export async function fetchRegistryDiscover(): Promise<RegistryDiscoverResponse>
         ? discoveredDetails.map((p) => p.url)
         : undefined,
     policy,
+    trust,
   };
 }
 
@@ -485,6 +584,10 @@ export interface PeerStatus {
   /** Explicit policy block flag when the backend sets it. */
   blocked?: boolean;
   policy?: string | null;
+  /** HMAC trust outcome when the backend verifies peer responses (v1.2+). */
+  trust_status?: PeerTrustStatus | null;
+  /** Optional nested trust block from probe/status. */
+  trust?: PeerTrustInfo | null;
 }
 
 export interface PeerStatusListResponse {
@@ -501,6 +604,10 @@ function normalizePeerStatus(raw: PeerStatus): PeerStatus {
     raw.blocked === true ||
     isPeerPolicyBlockMessage(error) ||
     isPeerPolicyBlockMessage(raw.policy);
+  const trust = normalizeTrustInfo(raw.trust);
+  const trustStatus =
+    normalizeTrustStatus(raw.trust_status) ??
+    (trust?.status ? normalizeTrustStatus(trust.status) : undefined);
   return {
     url: raw.url || raw.base_url || '',
     base_url: raw.base_url || raw.url || '',
@@ -510,6 +617,8 @@ function normalizePeerStatus(raw: PeerStatus): PeerStatus {
     count: raw.count ?? null,
     blocked,
     policy: raw.policy ?? null,
+    trust_status: trustStatus ?? raw.trust_status ?? null,
+    trust: trust ?? raw.trust ?? null,
   };
 }
 
