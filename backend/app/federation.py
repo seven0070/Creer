@@ -7,8 +7,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
-import httpx
-
 from config import CREER_PUBLIC_BASE_URL, CREER_REGISTRY_PEERS
 from app.auth import registry_auth_required
 from app.peer_policy import (
@@ -18,9 +16,10 @@ from app.peer_policy import (
     policy_summary,
 )
 from app.peer_trust import evaluate_peer_trust, sign_payload, trust_mode
+from app.http_client import peer_httpx_client
 from app.registry import list_registry, registry_count
 
-FEDERATION_VERSION = "1.2.0"
+FEDERATION_VERSION = "1.3.0"
 _MAX_PEERS = 8
 _DISCOVER_TIMEOUT = 3.0
 
@@ -172,7 +171,7 @@ def _fetch_peer_registry(
 
     url = f"{base}/registry"
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+        with peer_httpx_client(timeout=timeout) as client:
             resp = client.get(url, params=params or None)
             resp.raise_for_status()
             data = resp.json()
@@ -222,7 +221,7 @@ def fetch_peer_discover(
 
     url = f"{base}/registry/discover"
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+        with peer_httpx_client(timeout=timeout) as client:
             resp = client.get(url)
             resp.raise_for_status()
             data = resp.json()
@@ -374,7 +373,7 @@ def probe_peer(base_url: str, timeout: float = 5.0) -> dict[str, Any]:
     trust_status: str | None = None
 
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+        with peer_httpx_client(timeout=timeout) as client:
             # Prefer /health for liveness + version (+ registry_count when present)
             try:
                 hresp = client.get(f"{base}/health")

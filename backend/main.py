@@ -18,6 +18,8 @@ from config import (
     CREER_PUBLIC_BASE_URL,
     MODEL,
     OPENAI_BASE_URL,
+    mtls_client_configured,
+    tls_server_configured,
 )
 from app.auth import registry_auth_required, require_registry_write
 from app.bakeins import apply_bakeins, list_bakein_options
@@ -53,7 +55,7 @@ from app.github import create_github_repo
 from app.jobs import cancel_job, create_job, finish_job, is_cancelled
 from app.quality import has_errors, run_quality_gates
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 
 app = FastAPI(title="Creer", version=VERSION)
 
@@ -182,6 +184,8 @@ def health():
         "allow_private_peers": CREER_ALLOW_PRIVATE_PEERS,
         "peer_trust_mode": trust_mode(),
         "peer_trust_signing": trust_enabled(),
+        "tls_server_configured": tls_server_configured(),
+        "mtls_client_configured": mtls_client_configured(),
     }
 
 

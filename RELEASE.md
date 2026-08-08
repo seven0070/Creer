@@ -1,4 +1,4 @@
-# Releasing Creer v1.0.0
+# Releasing Creer
 
 Exact steps for a human maintainer to cut a tagged release with GitHub Release + optional Marketplace / Open VSX publish.
 
@@ -8,51 +8,32 @@ In GitHub → **Settings → Secrets and variables → Actions**, add:
 
 | Secret | Purpose |
 |---|---|
-| `VSCE_PAT` | Azure DevOps PAT with Marketplace **Acquire** + **Publish** (publisher must match `extension/package.json` → `publisher`) |
-| `OVSX_PAT` | Open VSX access token from [open-vsx.org](https://open-vsx.org/) |
+| `VSCE_PAT` | Azure DevOps PAT with Marketplace **Acquire** + **Publish** |
+| `OVSX_PAT` | Open VSX access token |
 
-Both are optional. If neither is set, the release workflow still builds the `.vsix`, uploads it as an artifact, and (on tag pushes) creates a **GitHub Release** with the `.vsix` attached. Marketplace / Open VSX publish is skipped with `No publish tokens configured — artifact only`.
+Both optional. Without them the workflow still builds a `.vsix` artifact and (on tags) a GitHub Release.
 
-Never commit PATs. Prefer repo secrets over exporting tokens in shared shells.
+**Cloud agents cannot configure these secrets.**
 
-**Note:** Cloud agents cannot configure GitHub Actions secrets — a human must set `VSCE_PAT` / `OVSX_PAT` before signed Marketplace / Open VSX publish.
-
-## 2. Bump & verify locally
+## 2. Verify locally
 
 ```bash
-# Confirm extension version is 1.0.0
-grep '"version"' extension/package.json
-
-cd extension
-npm ci
-npm run compile
-npm run package
-# → creer-1.0.0.vsix
+grep '"version"' extension/package.json   # e.g. 1.3.0
+cd extension && npm ci && npm run compile && npm run package
+# → creer-1.3.0.vsix
 ```
 
-Smoke-test: `code --install-extension creer-1.0.0.vsix` (or Cursor equivalent) against a running backend.
-
-## 3. Tag v1.0.0 and push
-
-From a clean `main` (or the release commit):
+## 3. Tag and push
 
 ```bash
-git tag -a v1.0.0 -m "Creer v1.0.0"
-git push origin v1.0.0
+git tag -a v1.3.0 -m "Creer v1.3.0"
+git push origin v1.3.0
 ```
 
-Tag pattern `v*` triggers [`.github/workflows/release.yml`](.github/workflows/release.yml).
+## 4. Workflow
 
-## 4. What the workflow does
-
-1. **build** — `npm ci` → `compile` → `vsce package` → upload `creer-vsix` artifact  
-2. **github-release** (tag pushes only) — create a GitHub Release and attach the `.vsix` (`contents: write`)  
-3. **publish** — if `VSCE_PAT` / `OVSX_PAT` secrets exist, publish to Marketplace / Open VSX; otherwise artifact-only
-
-You can also run the workflow via **Actions → Release → Run workflow** (`workflow_dispatch`) for a package/artifact without a tag (no GitHub Release job in that case).
+See `.github/workflows/release.yml` — build → GitHub Release on tags → optional Marketplace/Open VSX when secrets exist.
 
 ## 5. After release
 
-- Confirm the GitHub Release page lists `creer-1.0.0.vsix`
-- If secrets were set, confirm Marketplace / Open VSX listing updated to 1.0.0
-- See [`extension/PUBLISH.md`](extension/PUBLISH.md) for manual `vsce` / `ovsx` publish from a laptop
+Confirm the GitHub Release lists the `.vsix`. If secrets were set, confirm Marketplace / Open VSX listings.

@@ -2,7 +2,7 @@
   "name": "creer",
   "displayName": "Creer",
   "description": "AI-powered repo scaffolding inside your workspace",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "publisher": "creer",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -121,13 +121,22 @@
         "creer.license": {
           "type": "string",
           "default": "mit",
-          "enum": ["mit", "apache-2.0", "none"],
+          "enum": [
+            "mit",
+            "apache-2.0",
+            "none"
+          ],
           "description": "License bake-in for generated projects"
         },
         "creer.ciPreset": {
           "type": "string",
           "default": "auto",
-          "enum": ["auto", "python", "node", "none"],
+          "enum": [
+            "auto",
+            "python",
+            "node",
+            "none"
+          ],
           "description": "CI workflow bake-in preset for generated projects"
         },
         "creer.promptBakeins": {
