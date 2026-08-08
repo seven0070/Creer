@@ -47,8 +47,8 @@ def test_health_version_0_6(client):
     resp = client.get("/health")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["version"] == "0.6.0"
-    assert VERSION == "0.6.0"
+    assert data["version"] == "0.7.0"
+    assert VERSION == "0.7.0"
     assert data["offline"] is True
     assert data["packs_count"] >= 3
 

@@ -2,9 +2,10 @@
   "name": "creer",
   "displayName": "Creer",
   "description": "AI-powered repo scaffolding inside your workspace",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "creer",
   "license": "MIT",
+  "icon": "media/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/seven0070/Creer.git"
@@ -47,6 +48,10 @@
       {
         "command": "creer.browseMarketplace",
         "title": "Creer: Browse Pack Marketplace"
+      },
+      {
+        "command": "creer.browseRegistry",
+        "title": "Creer: Browse Pack Registry"
       }
     ],
     "chatParticipants": [

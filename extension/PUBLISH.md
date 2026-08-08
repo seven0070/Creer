@@ -19,7 +19,17 @@ npm run package
 # or: npx --yes @vscode/vsce package
 ```
 
-This runs `vsce package`, respects `.vscodeignore`, and includes production dependencies (e.g. `axios`). Output: `creer-0.6.0.vsix` (version from `package.json`).
+This runs `vsce package`, respects `.vscodeignore`, and includes production dependencies (e.g. `axios`) plus `media/icon.png`. Output: `creer-0.7.0.vsix` (version from `package.json`).
+
+### Publisher signing (human step)
+
+vsce/ovsx publish with a PAT **signs the release to your publisher identity**. This repo is packaging-ready (icon, changelog, license, repository metadata). Actual signing/publish requires:
+
+1. Create publisher `creer` (or change `package.json` → `publisher`)
+2. Export `VSCE_PAT` / `OVSX_PAT` in your shell only
+3. Run `npx @vscode/vsce publish` or `npx ovsx publish`
+
+No tokens are stored in this repository.
 
 Install locally for a smoke test:
 

@@ -25,6 +25,7 @@ export interface MarketplaceItem {
   /** e.g. bundled | remote | url host */
   source: string;
   url?: string;
+  download_url?: string;
 }
 
 export interface PlanResponse {
@@ -143,6 +144,7 @@ export async function fetchMarketplace(): Promise<MarketplaceItem[]> {
 
 /**
  * POST /packs/install → { url, overwrite? } → installed pack
+ * Backend returns `{ installed: true, pack: {...} }` (also tolerate a bare pack body).
  */
 export async function installPack(
   url: string,
@@ -153,10 +155,56 @@ export async function installPack(
   if (overwrite !== undefined) {
     body.overwrite = overwrite;
   }
-  const response = await axios.post<Pack>(`${backendUrl}/packs/install`, body, {
-    timeout: 120_000,
+  const response = await axios.post<{ installed?: boolean; pack?: Pack } & Pack>(
+    `${backendUrl}/packs/install`,
+    body,
+    { timeout: 120_000 }
+  );
+  const data = response.data;
+  if (data?.pack && typeof data.pack === 'object') {
+    return data.pack;
+  }
+  return data as Pack;
+}
+
+export interface RegistryItem {
+  id: string;
+  name: string;
+  description?: string;
+  stack?: string;
+  version?: string;
+  source?: string;
+  files?: string[];
+  download_url?: string;
+  install_url?: string;
+}
+
+export interface RegistryResponse {
+  version: string;
+  base_url?: string | null;
+  items: RegistryItem[];
+}
+
+/**
+ * GET /registry?q=&source= — searchable self-hosted pack registry.
+ */
+export async function fetchRegistry(options?: {
+  q?: string;
+  source?: 'all' | 'bundled' | 'installed';
+}): Promise<RegistryResponse> {
+  const backendUrl = getBackendUrl();
+  const response = await axios.get<RegistryResponse>(`${backendUrl}/registry`, {
+    timeout: 30_000,
+    params: {
+      q: options?.q || undefined,
+      source: options?.source || undefined,
+    },
   });
-  return response.data;
+  return {
+    version: response.data.version,
+    base_url: response.data.base_url,
+    items: response.data.items ?? [],
+  };
 }
 
 /**

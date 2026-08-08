@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { registerConflictDiffProvider } from './conflictDiff';
 import {
   browseMarketplaceCommand,
+  browseRegistryCommand,
   installPackFromUrlCommand,
 } from './marketplace';
 import { runScaffoldFlow } from './scaffold';
@@ -52,13 +53,19 @@ export function activate(context: vscode.ExtensionContext) {
     () => browseMarketplaceCommand()
   );
 
+  const browseRegistry = vscode.commands.registerCommand(
+    'creer.browseRegistry',
+    () => browseRegistryCommand()
+  );
+
   context.subscriptions.push(
     createRepo,
     createRepoFromChat,
     setToken,
     clearToken,
     installPackFromUrl,
-    browseMarketplace
+    browseMarketplace,
+    browseRegistry
   );
   registerChatParticipant(context);
 }
