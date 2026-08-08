@@ -18,16 +18,16 @@ Both optional. Without them the workflow still builds a `.vsix` artifact and (on
 ## 2. Verify locally
 
 ```bash
-grep '"version"' extension/package.json   # e.g. 1.3.0
+grep '"version"' extension/package.json   # e.g. 1.4.0
 cd extension && npm ci && npm run compile && npm run package
-# → creer-1.3.0.vsix
+# → creer-1.4.0.vsix
 ```
 
 ## 3. Tag and push
 
 ```bash
-git tag -a v1.3.0 -m "Creer v1.3.0"
-git push origin v1.3.0
+git tag -a v1.4.0 -m "Creer v1.4.0"
+git push origin v1.4.0
 ```
 
 ## 4. Workflow

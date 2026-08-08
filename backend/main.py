@@ -11,17 +11,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from config import (
-    CREER_ALLOW_PRIVATE_PEERS,
-    CREER_FEDERATION_MAX_HOPS,
-    CREER_OFFLINE,
-    CREER_PUBLIC_BASE_URL,
-    MODEL,
-    OPENAI_BASE_URL,
-    mtls_client_configured,
-    tls_server_configured,
-)
-from app.auth import registry_auth_required, require_registry_write
+from app.auth import require_registry_write
 from app.bakeins import apply_bakeins, list_bakein_options
 from app.planner import plan_project
 from app.generator import generate_files, generate_files_iter
@@ -40,7 +30,6 @@ from app.registry import (
     get_registry_pack,
     list_registry,
     pack_download_bytes,
-    registry_count,
 )
 from app.federation import (
     discover_self,
@@ -50,12 +39,12 @@ from app.federation import (
     probe_peer,
 )
 from app.peer_policy import assert_peer_allowed
-from app.peer_trust import trust_enabled, trust_mode
 from app.github import create_github_repo
 from app.jobs import cancel_job, create_job, finish_job, is_cancelled
 from app.quality import has_errors, run_quality_gates
+from app.doctor import build_health, run_doctor
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 
 app = FastAPI(title="Creer", version=VERSION)
 
@@ -169,24 +158,13 @@ def _sse(data: dict) -> str:
 
 @app.get("/health")
 def health():
-    return {
-        "status": "ok",
-        "version": VERSION,
-        "offline": CREER_OFFLINE,
-        "base_url_set": bool(OPENAI_BASE_URL),
-        "model": MODEL,
-        "packs_count": len(list_packs()),
-        "registry_count": registry_count(),
-        "public_base_url_set": bool(CREER_PUBLIC_BASE_URL),
-        "peers_configured": len(parse_peers()),
-        "auth_required": registry_auth_required(),
-        "federation_max_hops": CREER_FEDERATION_MAX_HOPS,
-        "allow_private_peers": CREER_ALLOW_PRIVATE_PEERS,
-        "peer_trust_mode": trust_mode(),
-        "peer_trust_signing": trust_enabled(),
-        "tls_server_configured": tls_server_configured(),
-        "mtls_client_configured": mtls_client_configured(),
-    }
+    return build_health(VERSION)
+
+
+@app.get("/doctor")
+def doctor():
+    """Structured diagnostics report (no secrets)."""
+    return run_doctor(VERSION)
 
 
 @app.get("/templates")

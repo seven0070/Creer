@@ -153,7 +153,7 @@ def test_list_federated_includes_policy(monkeypatch):
     monkeypatch.setattr(policy, "CREER_PEER_ALLOWLIST", "")
 
     result = list_federated(discover=False)
-    assert result["version"] == "1.3.0"
+    assert result["version"] == "1.4.0"
     assert result["policy"] == {
         "max_hops": 1,
         "allow_private": False,
@@ -169,7 +169,7 @@ def test_discover_includes_policy(monkeypatch):
 
     c = TestClient(main.app)
     body = c.get("/registry/discover").json()
-    assert body["version"] == "1.3.0"
+    assert body["version"] == "1.4.0"
     assert body["policy"]["max_hops"] == 2
     assert body["policy"]["allow_private"] is True
     assert body["policy"]["allowlist_active"] is True
@@ -202,8 +202,8 @@ def test_health_1_1(monkeypatch):
     monkeypatch.setattr(fed, "CREER_REGISTRY_PEERS", "https://a.example")
     c = TestClient(main.app)
     h = c.get("/health").json()
-    assert h["version"] == "1.3.0"
-    assert VERSION == "1.3.0"
+    assert h["version"] == "1.4.0"
+    assert VERSION == "1.4.0"
     assert "federation_max_hops" in h
     assert h["federation_max_hops"] in (0, 1, 2)
     assert "allow_private_peers" in h
