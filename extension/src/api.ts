@@ -94,6 +94,17 @@ export async function postGenerate(
   return response.data;
 }
 
+/** Re-export streaming generate for callers that import from api. */
+export { streamGenerate } from './streamGenerate';
+export type {
+  StreamProgressEvent,
+  StreamGenerateOptions,
+  StreamStartEvent,
+  StreamFileEvent,
+  StreamDoneEvent,
+  StreamErrorEvent,
+} from './streamGenerate';
+
 export async function createGitHubRepo(
   token: string,
   name: string,

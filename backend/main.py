@@ -1,13 +1,23 @@
+"""Creer FastAPI application — plan, generate, stream, GitHub helpers."""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Iterator
+
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from config import CREER_OFFLINE, MODEL, OPENAI_BASE_URL
+from app.bakeins import apply_bakeins
 from app.planner import plan_project
-from app.generator import generate_files
+from app.generator import generate_files, generate_files_iter
 from app.validator import validate_plan, validate_files
 from app.templates import list_templates, get_template
 from app.github import create_github_repo
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 app = FastAPI(title="Creer", version=VERSION)
 
@@ -38,9 +48,36 @@ class GitHubCreateRepoRequest(BaseModel):
     token: str | None = None
 
 
+def _resolve_plan(request: GenerateRequest) -> dict:
+    """Resolve a validated plan from GenerateRequest (shared by sync + stream)."""
+    if request.plan is not None:
+        plan = request.plan.model_dump()
+        plan = {k: v for k, v in plan.items() if v is not None}
+        plan.setdefault("stack", "")
+        if request.template_id and "template_id" not in plan:
+            plan["template_id"] = request.template_id
+    else:
+        if request.template_id and get_template(request.template_id) is None:
+            raise ValueError(f"Unknown template_id: {request.template_id!r}")
+        plan = plan_project(request.idea, template_id=request.template_id)
+
+    validate_plan(plan)
+    return plan
+
+
+def _sse(data: dict) -> str:
+    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": VERSION}
+    return {
+        "status": "ok",
+        "version": VERSION,
+        "offline": CREER_OFFLINE,
+        "base_url_set": bool(OPENAI_BASE_URL),
+        "model": MODEL,
+    }
 
 
 @app.get("/templates")
@@ -76,20 +113,9 @@ def plan_only(request: PlanRequest):
 @app.post("/generate")
 def generate_project(request: GenerateRequest):
     try:
-        if request.plan is not None:
-            plan = request.plan.model_dump()
-            # Drop nulls except keep stack as empty string for the generator prompt
-            plan = {k: v for k, v in plan.items() if v is not None}
-            plan.setdefault("stack", "")
-            if request.template_id and "template_id" not in plan:
-                plan["template_id"] = request.template_id
-        else:
-            if request.template_id and get_template(request.template_id) is None:
-                raise ValueError(f"Unknown template_id: {request.template_id!r}")
-            plan = plan_project(request.idea, template_id=request.template_id)
-
-        validate_plan(plan)
+        plan = _resolve_plan(request)
         files = generate_files(plan)
+        files = apply_bakeins(plan, files)
         validate_files(files)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -104,6 +130,57 @@ def generate_project(request: GenerateRequest):
     if plan.get("template_id"):
         result["template_id"] = plan["template_id"]
     return result
+
+
+@app.post("/generate/stream")
+def generate_project_stream(request: GenerateRequest):
+    """Stream generation progress as Server-Sent Events (JSON data lines)."""
+
+    def event_stream() -> Iterator[str]:
+        plan: dict | None = None
+        try:
+            plan = _resolve_plan(request)
+            file_list = list(plan["files"])
+            yield _sse(
+                {
+                    "event": "start",
+                    "project_name": plan["project_name"],
+                    "total": len(file_list),
+                    "stack": plan.get("stack") or "",
+                }
+            )
+
+            files: dict[str, str] = {}
+            for event, partial in generate_files_iter(plan):
+                files = partial
+                yield _sse(event)
+
+            files = apply_bakeins(plan, files)
+            validate_files(files)
+
+            done: dict = {
+                "event": "done",
+                "project_name": plan["project_name"],
+                "files": files,
+                "stack": plan.get("stack") or "",
+            }
+            if plan.get("template_id"):
+                done["template_id"] = plan["template_id"]
+            yield _sse(done)
+        except ValueError as exc:
+            yield _sse({"event": "error", "detail": str(exc)})
+        except Exception as exc:
+            yield _sse({"event": "error", "detail": f"Generation failed: {exc}"})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.post("/github/create-repo")

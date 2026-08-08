@@ -2,7 +2,7 @@
   "name": "creer",
   "displayName": "Creer",
   "description": "AI-powered repo scaffolding inside your workspace",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "creer",
   "engines": {
     "vscode": "^1.85.0"
@@ -22,6 +22,14 @@
       {
         "command": "creer.createRepoFromChat",
         "title": "Creer: Create from Chat Prompt"
+      },
+      {
+        "command": "creer.setGitHubToken",
+        "title": "Creer: Set GitHub Token"
+      },
+      {
+        "command": "creer.clearGitHubToken",
+        "title": "Creer: Clear GitHub Token"
       }
     ],
     "chatParticipants": [
@@ -49,7 +57,8 @@
         "creer.githubToken": {
           "type": "string",
           "default": "",
-          "description": "GitHub personal access token for creating/pushing repositories"
+          "description": "DEPRECATED: Prefer SecretStorage via 'Creer: Set GitHub Token'. Used only as a fallback when SecretStorage is empty.",
+          "deprecationMessage": "Use 'Creer: Set GitHub Token' (SecretStorage) instead of storing the token in settings."
         },
         "creer.githubPrivate": {
           "type": "boolean",
@@ -65,6 +74,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show a plan preview and confirm before generating and writing files"
+        },
+        "creer.useStreaming": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use SSE streaming (/generate/stream) with per-file progress; falls back to /generate on failure"
         }
       }
     }

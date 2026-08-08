@@ -1,20 +1,41 @@
 import * as vscode from 'vscode';
 import { runScaffoldFlow } from './scaffold';
+import { clearGitHubToken, setGitHubToken } from './secrets';
 
 export function activate(context: vscode.ExtensionContext) {
   const createRepo = vscode.commands.registerCommand('creer.createRepo', async () => {
-    await runScaffoldFlow({ fromChat: false });
+    await runScaffoldFlow({ context, fromChat: false });
   });
 
   const createRepoFromChat = vscode.commands.registerCommand(
     'creer.createRepoFromChat',
     async (idea?: string) => {
       const initial = typeof idea === 'string' ? idea : undefined;
-      await runScaffoldFlow({ idea: initial, fromChat: true });
+      await runScaffoldFlow({ context, idea: initial, fromChat: true });
     }
   );
 
-  context.subscriptions.push(createRepo, createRepoFromChat);
+  const setToken = vscode.commands.registerCommand('creer.setGitHubToken', async () => {
+    const token = await vscode.window.showInputBox({
+      prompt: 'GitHub personal access token (repo scope) — stored in SecretStorage',
+      placeHolder: 'ghp_…',
+      password: true,
+      ignoreFocusOut: true,
+    });
+    const trimmed = token?.trim();
+    if (!trimmed) {
+      return;
+    }
+    await setGitHubToken(context, trimmed);
+    void vscode.window.showInformationMessage('Creer: GitHub token saved to SecretStorage.');
+  });
+
+  const clearToken = vscode.commands.registerCommand('creer.clearGitHubToken', async () => {
+    await clearGitHubToken(context);
+    void vscode.window.showInformationMessage('Creer: GitHub token cleared from SecretStorage.');
+  });
+
+  context.subscriptions.push(createRepo, createRepoFromChat, setToken, clearToken);
   registerChatParticipant(context);
 }
 
@@ -46,7 +67,7 @@ function registerChatParticipant(context: vscode.ExtensionContext): void {
           `Scaffolding with Creer: **${idea}**…\n\n` +
             'Follow the prompts to pick a template, preview the plan, and confirm.'
         );
-        await runScaffoldFlow({ idea, fromChat: true });
+        await runScaffoldFlow({ context, idea, fromChat: true });
       }
     );
 

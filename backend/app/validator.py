@@ -13,7 +13,8 @@ SAFE_PATH = re.compile(r"^(?!/)(?!.*(?:^|/)\.\.(?:/|$))[a-zA-Z0-9._/-]+$")
 # Windows drive / UNC-ish prefixes
 WINDOWS_DRIVE = re.compile(r"^[a-zA-Z]:")
 
-MAX_FILES = 40
+# Plan file cap; generated set may also include bake-ins (LICENSE, CI, optional README).
+MAX_FILES = 45
 MAX_CONTENT_BYTES_PER_FILE = 200_000
 MAX_TOTAL_CONTENT_BYTES = 2_000_000
 

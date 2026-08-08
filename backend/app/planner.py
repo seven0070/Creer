@@ -5,21 +5,14 @@ from __future__ import annotations
 import json
 import re
 
-from openai import OpenAI
-
-from config import MODEL, OPENAI_API_KEY
+from config import CREER_OFFLINE, MODEL, OPENAI_API_KEY, OPENAI_BASE_URL
+from app.llm import _get_client
 from app.templates import apply_template, get_template, slugify
 
-_client: OpenAI | None = None
 
-
-def _get_client() -> OpenAI:
-    global _client
-    if _client is None:
-        if not OPENAI_API_KEY:
-            raise ValueError("OPENAI_API_KEY is not set")
-        _client = OpenAI(api_key=OPENAI_API_KEY)
-    return _client
+def _llm_configured() -> bool:
+    """True when an OpenAI key or OpenAI-compatible base URL is available."""
+    return bool(OPENAI_API_KEY or OPENAI_BASE_URL)
 
 
 def _parse_json(content: str) -> dict:
@@ -103,10 +96,17 @@ def plan_project(idea: str, template_id: str | None = None) -> dict:
     When template_id is set:
     - files and stack come from the template
     - project_name is derived deterministically via slugify (no API key required)
-    - if OPENAI_API_KEY is present, AI may refine project_name only
+    - if an LLM is configured and not offline, AI may refine project_name only
 
-    Without template_id: full AI planning (requires OPENAI_API_KEY).
+    Without template_id: full AI planning (requires OPENAI_API_KEY or OPENAI_BASE_URL),
+    unless offline — offline without template_id raises ValueError.
     """
+    if CREER_OFFLINE and not template_id:
+        raise ValueError(
+            "Offline mode requires template_id. Pass a curated template_id "
+            "(see GET /templates) — AI planning is disabled when CREER_OFFLINE is set."
+        )
+
     if template_id:
         tmpl = get_template(template_id)
         if tmpl is None:
@@ -114,10 +114,17 @@ def plan_project(idea: str, template_id: str | None = None) -> dict:
 
         plan = apply_template(template_id, idea)
 
-        # Optionally refine name with AI when a key is available
-        if OPENAI_API_KEY:
+        # Optionally refine name with AI when an LLM endpoint is available and not offline
+        if _llm_configured() and not CREER_OFFLINE:
             plan["project_name"] = _ai_name_project(idea, tmpl)
 
         return plan
+
+    if not _llm_configured() and not CREER_OFFLINE:
+        # No LLM endpoint and no template — cannot plan with AI
+        raise ValueError(
+            "OPENAI_API_KEY (or OPENAI_BASE_URL) is not set. Provide a template_id "
+            "for template-only planning, or set CREER_OFFLINE=1 with a template_id."
+        )
 
     return _ai_plan(idea)
