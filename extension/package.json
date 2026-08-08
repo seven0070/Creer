@@ -1,0 +1,52 @@
+{
+  "name": "creer",
+  "displayName": "Creer - AI Repo Scaffolder",
+  "description": "AI-powered repo scaffolding inside your workspace. Describe an idea, get a clean project.",
+  "version": "0.1.0",
+  "publisher": "creer",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "creer.createRepo",
+        "title": "Creer: Create New Repo"
+      }
+    ],
+    "configuration": {
+      "title": "Creer",
+      "properties": {
+        "creer.backendUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "Creer backend URL (FastAPI server)"
+        },
+        "creer.initGit": {
+          "type": "boolean",
+          "default": true,
+          "description": "Initialize git repo after generation"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "lint": "eslint src --ext ts"
+  },
+  "dependencies": {
+    "axios": "^1.7.2"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.11.0",
+    "@types/glob": "^8.1.0",
+    "typescript": "^5.3.3"
+  }
+}
