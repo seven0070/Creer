@@ -235,13 +235,23 @@ export interface FederatedRegistryResponse {
 }
 
 /**
- * GET /registry/federated?q=&source= — local + peer registry merge.
+ * GET /registry/federated?q=&source=&peers= — local + peer registry merge.
+ * `peers` is a comma-separated list of extra peer base URLs (from settings or callers).
  */
 export async function fetchFederatedRegistry(options?: {
   q?: string;
   source?: string;
+  /** Extra peer base URLs (comma-separated string or array). */
+  peers?: string | string[];
 }): Promise<FederatedRegistryResponse> {
   const backendUrl = getBackendUrl();
+  let peersParam: string | undefined;
+  if (Array.isArray(options?.peers)) {
+    const joined = options.peers.map((p) => p.trim()).filter(Boolean).join(',');
+    peersParam = joined || undefined;
+  } else if (typeof options?.peers === 'string' && options.peers.trim()) {
+    peersParam = options.peers.trim();
+  }
   const response = await axios.get<FederatedRegistryResponse>(
     `${backendUrl}/registry/federated`,
     {
@@ -249,6 +259,7 @@ export async function fetchFederatedRegistry(options?: {
       params: {
         q: options?.q || undefined,
         source: options?.source || undefined,
+        peers: peersParam,
       },
     }
   );
@@ -258,6 +269,63 @@ export async function fetchFederatedRegistry(options?: {
     peers: response.data.peers ?? [],
     items: response.data.items ?? [],
   };
+}
+
+/** Live peer probe / status from GET /registry/peers or POST /registry/peers/probe. */
+export interface PeerStatus {
+  /** Peer base URL (preferred). */
+  url?: string;
+  /** Alternate field some backends may return. */
+  base_url?: string;
+  ok: boolean;
+  latency_ms?: number | null;
+  error?: string | null;
+  count?: number | null;
+}
+
+export interface PeerStatusListResponse {
+  peers: PeerStatus[];
+  /** Backend-configured peer URLs (CREER_REGISTRY_PEERS). */
+  configured: string[];
+}
+
+function normalizePeerStatus(raw: PeerStatus): PeerStatus {
+  return {
+    url: raw.url || raw.base_url || '',
+    base_url: raw.base_url || raw.url || '',
+    ok: Boolean(raw.ok),
+    latency_ms: raw.latency_ms ?? null,
+    error: raw.error ?? null,
+    count: raw.count ?? null,
+  };
+}
+
+/**
+ * GET /registry/peers → `{ peers: PeerStatus[], configured: string[] }`
+ */
+export async function fetchPeerStatus(): Promise<PeerStatusListResponse> {
+  const backendUrl = getBackendUrl();
+  const response = await axios.get<PeerStatusListResponse>(
+    `${backendUrl}/registry/peers`,
+    { timeout: 30_000 }
+  );
+  return {
+    peers: (response.data.peers ?? []).map(normalizePeerStatus),
+    configured: response.data.configured ?? [],
+  };
+}
+
+/**
+ * POST /registry/peers/probe `{ url }` → PeerStatus
+ */
+export async function probePeer(url: string): Promise<PeerStatus> {
+  const backendUrl = getBackendUrl();
+  const response = await axios.post<PeerStatus>(
+    `${backendUrl}/registry/peers/probe`,
+    { url },
+    { timeout: 30_000 }
+  );
+  return normalizePeerStatus(response.data);
 }
 
 /**

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -11,7 +12,7 @@ import httpx
 from config import CREER_REGISTRY_PEERS
 from app.registry import list_registry
 
-FEDERATION_VERSION = "0.8.0"
+FEDERATION_VERSION = "0.9.0"
 _MAX_PEERS = 8
 
 
@@ -40,6 +41,33 @@ def parse_peers(raw: str | None = None) -> list[str]:
             continue
         seen.add(url)
         out.append(url)
+    return out
+
+
+def resolve_peers(extra_peers: list[str] | None = None) -> list[str]:
+    """
+    Merge configured peers with optional ad-hoc extras.
+
+    Dedupes (configured first), http/https only, capped at _MAX_PEERS.
+    """
+    configured = parse_peers()
+    extras: list[str] = []
+    if extra_peers:
+        # Normalize each entry (allow raw URLs or comma-joined strings)
+        for raw in extra_peers:
+            if not raw:
+                continue
+            extras.extend(parse_peers(raw))
+
+    seen: set[str] = set()
+    out: list[str] = []
+    for url in configured + extras:
+        if url in seen:
+            continue
+        seen.add(url)
+        out.append(url)
+        if len(out) >= _MAX_PEERS:
+            break
     return out
 
 
@@ -124,11 +152,118 @@ def _fetch_peer_registry(
     return _tag_peer_items(base, raw_items), None
 
 
+def probe_peer(base_url: str, timeout: float = 5.0) -> dict[str, Any]:
+    """
+    Probe a peer host via /health (preferred) and/or /registry for pack count.
+
+    Never raises — returns a status dict with ok/latency/count/version/error.
+    """
+    base = (base_url or "").strip().rstrip("/")
+    result: dict[str, Any] = {
+        "base_url": base,
+        "ok": False,
+        "latency_ms": None,
+        "count": None,
+        "version": None,
+        "error": None,
+    }
+    if not base:
+        result["error"] = "empty base_url"
+        return result
+
+    parsed = urlparse(base)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        result["error"] = "url must use http or https with a host"
+        return result
+
+    started = time.perf_counter()
+    version: str | None = None
+    count: int | None = None
+    health_ok = False
+    last_error: str | None = None
+
+    try:
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            # Prefer /health for liveness + version (+ registry_count when present)
+            try:
+                hresp = client.get(f"{base}/health")
+                hresp.raise_for_status()
+                hdata = hresp.json()
+                health_ok = True
+                if isinstance(hdata, dict):
+                    ver = hdata.get("version")
+                    if isinstance(ver, str):
+                        version = ver
+                    if "registry_count" in hdata and hdata["registry_count"] is not None:
+                        try:
+                            count = int(hdata["registry_count"])
+                        except (TypeError, ValueError):
+                            pass
+            except Exception as exc:  # noqa: BLE001
+                last_error = str(exc)
+
+            # Use /registry for count (and version fallback) when needed
+            if count is None or version is None:
+                try:
+                    rresp = client.get(f"{base}/registry")
+                    rresp.raise_for_status()
+                    rdata = rresp.json()
+                    if isinstance(rdata, dict):
+                        if version is None:
+                            ver = rdata.get("version")
+                            if isinstance(ver, str):
+                                version = ver
+                        if count is None:
+                            raw_items = rdata.get("items") or []
+                            count = len(raw_items) if isinstance(raw_items, list) else 0
+                    elif isinstance(rdata, list) and count is None:
+                        count = len(rdata)
+                except Exception as exc:  # noqa: BLE001
+                    if not health_ok:
+                        last_error = str(exc)
+                    elif last_error is None:
+                        last_error = str(exc)
+
+            latency_ms = round((time.perf_counter() - started) * 1000, 1)
+            result["latency_ms"] = latency_ms
+
+            if health_ok or count is not None:
+                result["ok"] = True
+                result["count"] = count if count is not None else 0
+                result["version"] = version
+                result["error"] = None
+                return result
+
+            result["error"] = last_error or "unreachable"
+            return result
+    except Exception as exc:  # noqa: BLE001
+        result["latency_ms"] = round((time.perf_counter() - started) * 1000, 1)
+        result["error"] = str(exc)
+        return result
+
+
+def list_peer_status() -> list[dict[str, Any]]:
+    """Probe all configured peers concurrently; preserve configured order."""
+    peers = parse_peers()[:_MAX_PEERS]
+    if not peers:
+        return []
+
+    by_url: dict[str, dict[str, Any]] = {}
+    workers = min(8, len(peers))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(probe_peer, p): p for p in peers}
+        for fut in as_completed(futures):
+            peer = futures[fut]
+            by_url[peer] = fut.result()
+    return [by_url[p] for p in peers]
+
+
 def list_federated(
     *,
     q: str | None = None,
     source: str | None = None,
     include_local: bool = True,
+    extra_peers: list[str] | None = None,
 ) -> dict[str, Any]:
     """Merge local registry with peer registries (local ids win on collision)."""
     local = list_registry(q=q, source=source or "all") if include_local else {
@@ -137,7 +272,7 @@ def list_federated(
         "items": [],
     }
 
-    peers = parse_peers()[:_MAX_PEERS]
+    peers = resolve_peers(extra_peers)
     peer_meta: list[dict[str, Any]] = []
     peer_items_by_url: dict[str, list[dict[str, Any]]] = {}
 
@@ -160,7 +295,7 @@ def list_federated(
                         "error": err,
                     }
                 )
-        # Stable peer order matching parse_peers()
+        # Stable peer order matching resolve_peers()
         order = {p: i for i, p in enumerate(peers)}
         peer_meta.sort(key=lambda m: order.get(m["base_url"], 0))
 

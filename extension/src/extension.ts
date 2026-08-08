@@ -5,7 +5,7 @@ import {
   browseRegistryCommand,
   installPackFromUrlCommand,
 } from './marketplace';
-import { browseFederatedRegistryCommand } from './registry';
+import { browseFederatedRegistryCommand, manageRegistryPeersCommand } from './registry';
 import { runScaffoldFlow } from './scaffold';
 import { clearGitHubToken, setGitHubToken } from './secrets';
 
@@ -64,6 +64,11 @@ export function activate(context: vscode.ExtensionContext) {
     () => browseFederatedRegistryCommand()
   );
 
+  const manageRegistryPeers = vscode.commands.registerCommand(
+    'creer.manageRegistryPeers',
+    () => manageRegistryPeersCommand()
+  );
+
   context.subscriptions.push(
     createRepo,
     createRepoFromChat,
@@ -72,7 +77,8 @@ export function activate(context: vscode.ExtensionContext) {
     installPackFromUrl,
     browseMarketplace,
     browseRegistry,
-    browseFederatedRegistry
+    browseFederatedRegistry,
+    manageRegistryPeers
   );
   registerChatParticipant(context);
 }
