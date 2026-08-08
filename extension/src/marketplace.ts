@@ -8,6 +8,7 @@ import {
   type MarketplaceItem,
   type RegistryItem,
 } from './api';
+import { resolveRegistryToken } from './secrets';
 
 export function resolveInstallUrl(url: string | undefined): string | undefined {
   const trimmed = url?.trim();
@@ -32,7 +33,9 @@ export function resolveInstallUrl(url: string | undefined): string | undefined {
 /**
  * Creer: Install Pack from URL — prompt for URL, POST /packs/install.
  */
-export async function installPackFromUrlCommand(): Promise<void> {
+export async function installPackFromUrlCommand(
+  context: vscode.ExtensionContext
+): Promise<void> {
   const url = await vscode.window.showInputBox({
     prompt: 'Pack URL (JSON/YAML pack definition or registry download URL)',
     placeHolder: 'http://localhost:8000/registry/packs/fastapi-crud/download',
@@ -43,6 +46,7 @@ export async function installPackFromUrlCommand(): Promise<void> {
     return;
   }
 
+  const token = await resolveRegistryToken(context);
   try {
     const pack = await vscode.window.withProgress(
       {
@@ -50,7 +54,7 @@ export async function installPackFromUrlCommand(): Promise<void> {
         title: 'Creer: installing pack…',
         cancellable: false,
       },
-      () => installPack(trimmed)
+      () => installPack(trimmed, { token })
     );
     const name = pack.name || pack.id || 'pack';
     void vscode.window.showInformationMessage(
@@ -72,7 +76,8 @@ export function isBundledSource(source: string | undefined): boolean {
 
 export async function installFromResolvedUrl(
   label: string,
-  url: string | undefined
+  url: string | undefined,
+  context?: vscode.ExtensionContext
 ): Promise<void> {
   const resolved = resolveInstallUrl(url);
   if (!resolved) {
@@ -89,6 +94,7 @@ export async function installFromResolvedUrl(
     return;
   }
 
+  const token = context ? await resolveRegistryToken(context) : undefined;
   try {
     const pack = await vscode.window.withProgress(
       {
@@ -96,7 +102,7 @@ export async function installFromResolvedUrl(
         title: `Creer: installing ${label}…`,
         cancellable: false,
       },
-      () => installPack(resolved)
+      () => installPack(resolved, { token })
     );
     void vscode.window.showInformationMessage(
       `Creer: installed pack “${pack.name || pack.id || label}”.`
@@ -110,7 +116,9 @@ export async function installFromResolvedUrl(
 /**
  * Creer: Browse Pack Marketplace — GET /marketplace, QuickPick, optional install.
  */
-export async function browseMarketplaceCommand(): Promise<void> {
+export async function browseMarketplaceCommand(
+  context: vscode.ExtensionContext
+): Promise<void> {
   let items: MarketplaceItem[];
   try {
     items = await vscode.window.withProgress(
@@ -175,14 +183,17 @@ export async function browseMarketplaceCommand(): Promise<void> {
 
   await installFromResolvedUrl(
     item.name || item.id,
-    item.url || item.download_url
+    item.url || item.download_url,
+    context
   );
 }
 
 /**
  * Creer: Browse Pack Registry — searchable self-hosted /registry catalog.
  */
-export async function browseRegistryCommand(): Promise<void> {
+export async function browseRegistryCommand(
+  context: vscode.ExtensionContext
+): Promise<void> {
   const q = await vscode.window.showInputBox({
     prompt: 'Search registry (leave empty for all packs)',
     placeHolder: 'fastapi, express, cli…',
@@ -249,12 +260,16 @@ export async function browseRegistryCommand(): Promise<void> {
 
   await installFromResolvedUrl(
     item.name || item.id,
-    item.install_url || item.download_url
+    item.install_url || item.download_url,
+    context
   );
 }
 
 /** Optional helper for hosts that expose delete UI later. */
-export async function deletePackCommand(packId?: string): Promise<void> {
+export async function deletePackCommand(
+  packId: string | undefined,
+  context: vscode.ExtensionContext
+): Promise<void> {
   let id = packId?.trim();
   if (!id) {
     id = (
@@ -269,8 +284,9 @@ export async function deletePackCommand(packId?: string): Promise<void> {
     return;
   }
 
+  const token = await resolveRegistryToken(context);
   try {
-    await deletePack(id);
+    await deletePack(id, { token });
     void vscode.window.showInformationMessage(`Creer: deleted pack “${id}”.`);
   } catch (err) {
     const message = formatAxiosError(err, 'Failed to delete pack');

@@ -2,7 +2,7 @@
   "name": "creer",
   "displayName": "Creer",
   "description": "AI-powered repo scaffolding inside your workspace",
-  "version": "0.9.0",
+  "version": "1.0.0",
   "publisher": "creer",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -40,6 +40,14 @@
       {
         "command": "creer.clearGitHubToken",
         "title": "Creer: Clear GitHub Token"
+      },
+      {
+        "command": "creer.setRegistryToken",
+        "title": "Creer: Set Registry Token"
+      },
+      {
+        "command": "creer.clearRegistryToken",
+        "title": "Creer: Clear Registry Token"
       },
       {
         "command": "creer.installPackFromUrl",
@@ -151,6 +159,17 @@
           "type": "boolean",
           "default": true,
           "description": "When browsing the federated registry, show peer health summary (ok/fail/latency)"
+        },
+        "creer.federatedDiscover": {
+          "type": "boolean",
+          "default": false,
+          "description": "When browsing the federated registry, pass discover=true for one-hop peer expansion"
+        },
+        "creer.registryToken": {
+          "type": "string",
+          "default": "",
+          "description": "DEPRECATED: Prefer SecretStorage via 'Creer: Set Registry Token'. Used only as a fallback when SecretStorage is empty. Sent as Bearer / X-Creer-Token on mutating registry requests when the backend has CREER_REGISTRY_TOKEN.",
+          "deprecationMessage": "Use 'Creer: Set Registry Token' (SecretStorage) instead of storing the token in settings."
         }
       }
     }

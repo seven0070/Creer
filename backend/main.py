@@ -7,11 +7,12 @@ from collections.abc import Iterator
 from typing import Any, Literal
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from config import CREER_OFFLINE, CREER_PUBLIC_BASE_URL, MODEL, OPENAI_BASE_URL
+from app.auth import registry_auth_required, require_registry_write
 from app.bakeins import apply_bakeins, list_bakein_options
 from app.planner import plan_project
 from app.generator import generate_files, generate_files_iter
@@ -32,12 +33,18 @@ from app.registry import (
     pack_download_bytes,
     registry_count,
 )
-from app.federation import list_federated, list_peer_status, parse_peers, probe_peer
+from app.federation import (
+    discover_self,
+    list_federated,
+    list_peer_status,
+    parse_peers,
+    probe_peer,
+)
 from app.github import create_github_repo
 from app.jobs import cancel_job, create_job, finish_job, is_cancelled
 from app.quality import has_errors, run_quality_gates
 
-VERSION = "0.9.0"
+VERSION = "1.0.0"
 
 app = FastAPI(title="Creer", version=VERSION)
 
@@ -161,6 +168,7 @@ def health():
         "registry_count": registry_count(),
         "public_base_url_set": bool(CREER_PUBLIC_BASE_URL),
         "peers_configured": len(parse_peers()),
+        "auth_required": registry_auth_required(),
     }
 
 
@@ -191,12 +199,26 @@ def registry_federated(
         default=None,
         description="Comma-separated extra peer base URLs for this request only",
     ),
+    discover: bool = Query(
+        default=False,
+        description="One-hop peer discovery via GET {peer}/registry/discover",
+    ),
 ):
     """Federated registry: local packs plus peer Creer registries."""
     extra = parse_peers(peers) if peers else None
     return list_federated(
-        q=q, source=source, include_local=True, extra_peers=extra
+        q=q,
+        source=source,
+        include_local=True,
+        extra_peers=extra,
+        discover=discover,
     )
+
+
+@app.get("/registry/discover")
+def registry_discover():
+    """Gossip-lite self advertisement: version, packs, configured peers, auth flag."""
+    return discover_self()
 
 
 @app.get("/registry/peers")
@@ -206,8 +228,11 @@ def registry_peers():
 
 
 @app.post("/registry/peers/probe")
-def registry_peers_probe(request: PeerProbeRequest):
-    """Ad-hoc probe of a single peer base URL."""
+def registry_peers_probe(
+    request: PeerProbeRequest,
+    _: None = Depends(require_registry_write),
+):
+    """Ad-hoc probe of a single peer base URL (auth required when token configured)."""
     url = (request.url or "").strip().rstrip("/")
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
@@ -247,7 +272,10 @@ def marketplace():
 
 
 @app.post("/packs/install")
-def packs_install(request: PackInstallRequest):
+def packs_install(
+    request: PackInstallRequest,
+    _: None = Depends(require_registry_write),
+):
     """Fetch a remote pack URL (http/https), validate, and install locally."""
     try:
         pack = install_pack_from_url(request.url, overwrite=request.overwrite)
@@ -271,7 +299,10 @@ def pack_detail(pack_id: str):
 
 
 @app.delete("/packs/{pack_id}")
-def packs_delete(pack_id: str):
+def packs_delete(
+    pack_id: str,
+    _: None = Depends(require_registry_write),
+):
     """Delete a pack from the writable installed dir only (not shipped examples)."""
     try:
         uninstall_pack(pack_id)

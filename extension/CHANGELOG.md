@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.0
+
+Stable foundation release: optional registry write auth, one-hop peer discovery, and federated discover browse.
+
+- Optional registry write auth: `creer.registryToken` (deprecated plaintext) + SecretStorage via **Creer: Set / Clear Registry Token**
+- Mutating API calls (`installPack`, `deletePack`, `probePeer`) send `Authorization: Bearer` and `X-Creer-Token` when a token is available
+- `GET /registry/discover` client + `fetchFederatedRegistry({ discover })` for one-hop peer expansion
+- Setting `creer.federatedDiscover` (default false) passes `discover=true` on federated browse
+- **Creer: Manage Registry Peers** — Discover peers (one hop); probe/install/delete honor registry token
+- Human publish step unchanged: set `VSCE_PAT` / `OVSX_PAT` yourself (agents cannot configure GitHub Actions secrets)
+
 ## 0.9.0
 
 - Richer federation UX: `creer.registryPeers` + `creer.showPeerStatus` settings

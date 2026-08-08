@@ -143,22 +143,46 @@ export async function fetchMarketplace(): Promise<MarketplaceItem[]> {
 }
 
 /**
+ * Auth headers for mutating registry endpoints when a token is available.
+ * Backend accepts Authorization: Bearer and/or X-Creer-Token when CREER_REGISTRY_TOKEN is set.
+ */
+export function registryAuthHeaders(token?: string): Record<string, string> {
+  const trimmed = token?.trim();
+  if (!trimmed) {
+    return {};
+  }
+  return {
+    Authorization: `Bearer ${trimmed}`,
+    'X-Creer-Token': trimmed,
+  };
+}
+
+export interface PackInstallOptions {
+  overwrite?: boolean;
+  /** Optional registry write token (from SecretStorage / setting). */
+  token?: string;
+}
+
+/**
  * POST /packs/install → { url, overwrite? } → installed pack
  * Backend returns `{ installed: true, pack: {...} }` (also tolerate a bare pack body).
  */
 export async function installPack(
   url: string,
-  overwrite?: boolean
+  options?: PackInstallOptions
 ): Promise<Pack> {
   const backendUrl = getBackendUrl();
   const body: { url: string; overwrite?: boolean } = { url };
-  if (overwrite !== undefined) {
-    body.overwrite = overwrite;
+  if (options?.overwrite !== undefined) {
+    body.overwrite = options.overwrite;
   }
   const response = await axios.post<{ installed?: boolean; pack?: Pack } & Pack>(
     `${backendUrl}/packs/install`,
     body,
-    { timeout: 120_000 }
+    {
+      timeout: 120_000,
+      headers: registryAuthHeaders(options?.token),
+    }
   );
   const data = response.data;
   if (data?.pack && typeof data.pack === 'object') {
@@ -235,14 +259,17 @@ export interface FederatedRegistryResponse {
 }
 
 /**
- * GET /registry/federated?q=&source=&peers= — local + peer registry merge.
+ * GET /registry/federated?q=&source=&peers=&discover= — local + peer registry merge.
  * `peers` is a comma-separated list of extra peer base URLs (from settings or callers).
+ * When `discover` is true, the backend expands one hop of peer-of-peer URLs.
  */
 export async function fetchFederatedRegistry(options?: {
   q?: string;
   source?: string;
   /** Extra peer base URLs (comma-separated string or array). */
   peers?: string | string[];
+  /** One-hop peer expansion (discover=true). */
+  discover?: boolean;
 }): Promise<FederatedRegistryResponse> {
   const backendUrl = getBackendUrl();
   let peersParam: string | undefined;
@@ -260,6 +287,7 @@ export async function fetchFederatedRegistry(options?: {
         q: options?.q || undefined,
         source: options?.source || undefined,
         peers: peersParam,
+        discover: options?.discover === true ? true : undefined,
       },
     }
   );
@@ -268,6 +296,53 @@ export async function fetchFederatedRegistry(options?: {
     local: response.data.local ?? { items: [] },
     peers: response.data.peers ?? [],
     items: response.data.items ?? [],
+  };
+}
+
+export interface RegistryDiscoverResponse {
+  /** Discovered peer base URLs (one hop). */
+  peers: string[];
+  /** Optional notes from the backend. */
+  discovered?: string[];
+}
+
+function normalizePeerUrlList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of raw) {
+    let url = '';
+    if (typeof entry === 'string') {
+      url = entry.trim().replace(/\/$/, '');
+    } else if (entry && typeof entry === 'object') {
+      const obj = entry as { url?: string; base_url?: string };
+      url = (obj.url || obj.base_url || '').trim().replace(/\/$/, '');
+    }
+    if (url && !seen.has(url)) {
+      seen.add(url);
+      out.push(url);
+    }
+  }
+  return out;
+}
+
+/**
+ * GET /registry/discover — one-hop peer discovery from the local backend.
+ */
+export async function fetchRegistryDiscover(): Promise<RegistryDiscoverResponse> {
+  const backendUrl = getBackendUrl();
+  const response = await axios.get<Record<string, unknown>>(
+    `${backendUrl}/registry/discover`,
+    { timeout: 60_000 }
+  );
+  const data = response.data ?? {};
+  const peers = normalizePeerUrlList(data.peers ?? data.discovered ?? data.urls);
+  const discovered = normalizePeerUrlList(data.discovered);
+  return {
+    peers: peers.length > 0 ? peers : discovered,
+    discovered: discovered.length > 0 ? discovered : undefined,
   };
 }
 
@@ -315,15 +390,26 @@ export async function fetchPeerStatus(): Promise<PeerStatusListResponse> {
   };
 }
 
+export interface RegistryMutateOptions {
+  /** Optional registry write token (from SecretStorage / setting). */
+  token?: string;
+}
+
 /**
  * POST /registry/peers/probe `{ url }` → PeerStatus
  */
-export async function probePeer(url: string): Promise<PeerStatus> {
+export async function probePeer(
+  url: string,
+  options?: RegistryMutateOptions
+): Promise<PeerStatus> {
   const backendUrl = getBackendUrl();
   const response = await axios.post<PeerStatus>(
     `${backendUrl}/registry/peers/probe`,
     { url },
-    { timeout: 30_000 }
+    {
+      timeout: 30_000,
+      headers: registryAuthHeaders(options?.token),
+    }
   );
   return normalizePeerStatus(response.data);
 }
@@ -331,10 +417,14 @@ export async function probePeer(url: string): Promise<PeerStatus> {
 /**
  * DELETE /packs/{id} → delete installed pack
  */
-export async function deletePack(id: string): Promise<void> {
+export async function deletePack(
+  id: string,
+  options?: RegistryMutateOptions
+): Promise<void> {
   const backendUrl = getBackendUrl();
   await axios.delete(`${backendUrl}/packs/${encodeURIComponent(id)}`, {
     timeout: 30_000,
+    headers: registryAuthHeaders(options?.token),
   });
 }
 

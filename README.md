@@ -2,7 +2,7 @@
 
 AI-powered repo scaffolding inside your workspace.
 
-**Current version: 0.9.0**
+**Current version: 1.0.0** (stable foundation)
 
 ## Architecture
 
@@ -26,23 +26,28 @@ cd extension && npm install && npm run compile
 # F5 → Creer: Create New Repo
 ```
 
-## Registry & federation (v0.7–v0.9)
+## Registry & federation (v0.7–v1.0)
 
-Self-hosted pack catalog plus optional multi-host federation:
+Self-hosted pack catalog plus optional multi-host federation and write auth:
 
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/registry?q=&source=` | Searchable pack list |
-| `GET` | `/registry/federated?q=&source=&peers=` | Local + peer merge (extra peers CSV) |
+| `GET` | `/registry/federated?q=&source=&peers=&discover=` | Local + peer merge; `discover=true` expands one hop |
+| `GET` | `/registry/discover` | One-hop peer discovery |
 | `GET` | `/registry/peers` | Peer health + configured URLs |
-| `POST` | `/registry/peers/probe` | Probe one peer `{ url }` |
+| `POST` | `/registry/peers/probe` | Probe one peer `{ url }` (auth when configured) |
 | `GET` | `/registry/packs/{id}` | Pack metadata |
 | `GET` | `/registry/packs/{id}/download` | Portable JSON pack (installable URL) |
 | `GET` | `/marketplace` | Curated featured view |
+| `POST` | `/packs/install` | Install pack from URL (auth when configured) |
+| `DELETE` | `/packs/{id}` | Delete installed pack (auth when configured) |
 
-Extension settings: `creer.registryPeers` (comma-separated peer base URLs), `creer.showPeerStatus` (peer health in federated browse).
+When the backend sets `CREER_REGISTRY_TOKEN`, mutating routes expect `Authorization: Bearer <token>` and/or `X-Creer-Token`.
 
-Commands: **Creer: Browse Federated Registry**, **Creer: Manage Registry Peers**.
+Extension settings: `creer.registryPeers`, `creer.showPeerStatus`, `creer.federatedDiscover` (pass `discover=true`), `creer.registryToken` (deprecated plaintext — prefer SecretStorage).
+
+Commands: **Browse Federated Registry**, **Manage Registry Peers** (includes Discover peers), **Set / Clear Registry Token**.
 
 Install from another Creer host:
 
@@ -53,7 +58,8 @@ curl -X POST http://localhost:8000/packs/install \
 ```
 
 Set `CREER_PUBLIC_BASE_URL` for absolute download links in registry responses.
-Set `CREER_REGISTRY_PEERS` (comma-separated base URLs) for backend-configured federated discovery.
+Set `CREER_REGISTRY_PEERS` for backend-configured federated discovery.
+Set `CREER_REGISTRY_TOKEN` to require write auth on install/delete/probe.
 Use `creer.registryPeers` in the extension for client-side extra peers when browsing.
 
 ## Extension commands
@@ -67,7 +73,8 @@ Use `creer.registryPeers` in the extension for client-side extra peers when brow
 | `creer.browseFederatedRegistry` | Browse Federated Registry |
 | `creer.manageRegistryPeers` | Manage Registry Peers |
 | `creer.installPackFromUrl` | Install Pack from URL |
-| `creer.setGitHubToken` / `clearGitHubToken` | SecretStorage token |
+| `creer.setGitHubToken` / `clearGitHubToken` | GitHub SecretStorage token |
+| `creer.setRegistryToken` / `clearRegistryToken` | Registry write SecretStorage token |
 
 ## CI & publishing
 
@@ -78,10 +85,10 @@ See [`RELEASE.md`](RELEASE.md) and [`extension/PUBLISH.md`](extension/PUBLISH.md
 
 ```bash
 cd extension && npm run compile && npm run package
-# → creer-0.9.0.vsix (includes media/icon.png)
+# → creer-1.0.0.vsix (includes media/icon.png)
 ```
 
-Signed Marketplace / Open VSX publish requires your own `VSCE_PAT` / `OVSX_PAT` (never commit tokens).
+Signed Marketplace / Open VSX publish requires your own `VSCE_PAT` / `OVSX_PAT` (never commit tokens). Agents cannot set GitHub Actions secrets — that remains a human step.
 
 ## License
 

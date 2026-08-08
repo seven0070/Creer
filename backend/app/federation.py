@@ -9,11 +9,13 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
-from config import CREER_REGISTRY_PEERS
-from app.registry import list_registry
+from config import CREER_PUBLIC_BASE_URL, CREER_REGISTRY_PEERS
+from app.auth import registry_auth_required
+from app.registry import list_registry, registry_count
 
-FEDERATION_VERSION = "0.9.0"
+FEDERATION_VERSION = "1.0.0"
 _MAX_PEERS = 8
+_DISCOVER_TIMEOUT = 3.0
 
 
 def parse_peers(raw: str | None = None) -> list[str]:
@@ -69,6 +71,17 @@ def resolve_peers(extra_peers: list[str] | None = None) -> list[str]:
         if len(out) >= _MAX_PEERS:
             break
     return out
+
+
+def discover_self() -> dict[str, Any]:
+    """Local gossip-lite discovery payload (configured peers only)."""
+    return {
+        "version": FEDERATION_VERSION,
+        "base_url": CREER_PUBLIC_BASE_URL or None,
+        "packs_count": registry_count(),
+        "peers": parse_peers(),
+        "auth_required": registry_auth_required(),
+    }
 
 
 def _absolutize_url(base_url: str, value: Any) -> Any:
@@ -150,6 +163,82 @@ def _fetch_peer_registry(
         return [], "unexpected registry items shape"
 
     return _tag_peer_items(base, raw_items), None
+
+
+def fetch_peer_discover(
+    base_url: str,
+    *,
+    timeout: float = _DISCOVER_TIMEOUT,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """
+    GET {base}/registry/discover.
+
+    Returns (payload, None) on success or (None, error) on failure. Never raises.
+    """
+    base = (base_url or "").strip().rstrip("/")
+    if not base:
+        return None, "empty base_url"
+
+    url = f"{base}/registry/discover"
+    try:
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            resp = client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as exc:  # noqa: BLE001
+        return None, str(exc)
+
+    if not isinstance(data, dict):
+        return None, "unexpected discover response shape"
+    return data, None
+
+
+def expand_peers_one_hop(
+    peers: list[str],
+    *,
+    timeout: float = _DISCOVER_TIMEOUT,
+) -> tuple[list[str], list[str]]:
+    """
+    One-hop gossip-lite: for each ok peer, fetch /registry/discover and collect
+    advertised peers not already in the list. Cap total at _MAX_PEERS.
+
+    Returns (expanded_peers, discovered_peers_added_this_hop).
+    """
+    if not peers:
+        return [], []
+
+    known: set[str] = set(peers)
+    discovered: list[str] = []
+    by_peer: dict[str, dict[str, Any] | None] = {}
+
+    workers = min(8, len(peers))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(fetch_peer_discover, p, timeout=timeout): p for p in peers}
+        for fut in as_completed(futures):
+            peer = futures[fut]
+            data, err = fut.result()
+            by_peer[peer] = data if err is None else None
+
+    # Preserve seed peer order when reading advertised lists
+    for peer in peers:
+        data = by_peer.get(peer)
+        if not data:
+            continue
+        advertised = data.get("peers") or []
+        if not isinstance(advertised, list):
+            continue
+        for raw in advertised:
+            if not isinstance(raw, str):
+                continue
+            for cand in parse_peers(raw):
+                if cand in known:
+                    continue
+                if len(peers) + len(discovered) >= _MAX_PEERS:
+                    return peers + discovered, discovered
+                known.add(cand)
+                discovered.append(cand)
+
+    return peers + discovered, discovered
 
 
 def probe_peer(base_url: str, timeout: float = 5.0) -> dict[str, Any]:
@@ -264,6 +353,7 @@ def list_federated(
     source: str | None = None,
     include_local: bool = True,
     extra_peers: list[str] | None = None,
+    discover: bool = False,
 ) -> dict[str, Any]:
     """Merge local registry with peer registries (local ids win on collision)."""
     local = list_registry(q=q, source=source or "all") if include_local else {
@@ -273,6 +363,10 @@ def list_federated(
     }
 
     peers = resolve_peers(extra_peers)
+    discovered_peers: list[str] = []
+    if discover and peers:
+        peers, discovered_peers = expand_peers_one_hop(peers)
+
     peer_meta: list[dict[str, Any]] = []
     peer_items_by_url: dict[str, list[dict[str, Any]]] = {}
 
@@ -295,7 +389,7 @@ def list_federated(
                         "error": err,
                     }
                 )
-        # Stable peer order matching resolve_peers()
+        # Stable peer order matching resolve_peers() / expand order
         order = {p: i for i, p in enumerate(peers)}
         peer_meta.sort(key=lambda m: order.get(m["base_url"], 0))
 
@@ -322,4 +416,5 @@ def list_federated(
         "local": local,
         "peers": peer_meta,
         "items": merged,
+        "discovered_peers": discovered_peers,
     }

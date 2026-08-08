@@ -168,7 +168,7 @@ def test_list_peer_status_concurrent(monkeypatch):
             "ok": base_url.endswith("a.example"),
             "latency_ms": 1.0,
             "count": 1 if base_url.endswith("a.example") else None,
-            "version": "0.9.0" if base_url.endswith("a.example") else None,
+            "version": "1.0.0" if base_url.endswith("a.example") else None,
             "error": None if base_url.endswith("a.example") else "down",
         }
 
@@ -195,7 +195,7 @@ def test_registry_peers_route(monkeypatch):
             "ok": True,
             "latency_ms": 2.5,
             "count": 4,
-            "version": "0.9.0",
+            "version": "1.0.0",
             "error": None,
         },
     )
@@ -230,7 +230,7 @@ def test_registry_peers_probe_ok(monkeypatch):
             "ok": True,
             "latency_ms": 10.0,
             "count": 2,
-            "version": "0.9.0",
+            "version": "1.0.0",
             "error": None,
         },
     )
@@ -262,7 +262,7 @@ def test_federated_with_extra_peers_query(monkeypatch):
     r = c.get("/registry/federated", params={"peers": "http://adhoc.peer:8002/"})
     assert r.status_code == 200
     body = r.json()
-    assert body["version"] == "0.9.0"
+    assert body["version"] == "1.0.0"
     assert any(p["base_url"] == "http://adhoc.peer:8002" for p in body["peers"])
     assert any(i["id"] == "adhoc-pack" for i in body["items"])
 
@@ -278,7 +278,7 @@ def test_list_federated_extra_peers_arg(monkeypatch):
 
     monkeypatch.setattr(fed, "_fetch_peer_registry", fake_fetch)
     result = list_federated(extra_peers=["http://extra.peer/", "http://cfg.peer"])
-    assert result["version"] == "0.9.0"
+    assert result["version"] == "1.0.0"
     assert seen == ["http://cfg.peer", "http://extra.peer"]
 
 
@@ -286,7 +286,7 @@ def test_health_0_9(monkeypatch):
     monkeypatch.setattr(fed, "CREER_REGISTRY_PEERS", "https://a.example,https://b.example")
     c = TestClient(main.app)
     h = c.get("/health").json()
-    assert h["version"] == "0.9.0"
-    assert VERSION == "0.9.0"
+    assert h["version"] == "1.0.0"
+    assert VERSION == "1.0.0"
     assert h["peers_configured"] == 2
     assert h["status"] == "ok"

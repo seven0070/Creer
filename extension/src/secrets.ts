@@ -3,6 +3,9 @@ import * as vscode from 'vscode';
 /** SecretStorage key for the GitHub personal access token. */
 export const GITHUB_TOKEN_SECRET_KEY = 'creer.githubToken';
 
+/** SecretStorage key for the optional Creer registry write token. */
+export const REGISTRY_TOKEN_SECRET_KEY = 'creer.registryToken';
+
 /**
  * Read GitHub token: SecretStorage first, then deprecated config fallback.
  */
@@ -88,4 +91,43 @@ export async function resolveGitHubToken(
     return existing;
   }
   return promptAndStoreGitHubToken(context);
+}
+
+/**
+ * Read registry token: SecretStorage first, then deprecated config fallback.
+ * Auth is optional — only needed when the backend sets CREER_REGISTRY_TOKEN.
+ */
+export async function getRegistryToken(
+  context: vscode.ExtensionContext
+): Promise<string | undefined> {
+  const secret = (await context.secrets.get(REGISTRY_TOKEN_SECRET_KEY))?.trim();
+  if (secret) {
+    return secret;
+  }
+
+  const fromConfig = (
+    vscode.workspace.getConfiguration('creer').get<string>('registryToken') || ''
+  ).trim();
+  return fromConfig || undefined;
+}
+
+export async function setRegistryToken(
+  context: vscode.ExtensionContext,
+  token: string
+): Promise<void> {
+  await context.secrets.store(REGISTRY_TOKEN_SECRET_KEY, token.trim());
+}
+
+export async function clearRegistryToken(context: vscode.ExtensionContext): Promise<void> {
+  await context.secrets.delete(REGISTRY_TOKEN_SECRET_KEY);
+}
+
+/**
+ * Resolve registry token for mutating API calls (SecretStorage → deprecated setting).
+ * Does not prompt — registry auth is optional when the server has no CREER_REGISTRY_TOKEN.
+ */
+export async function resolveRegistryToken(
+  context: vscode.ExtensionContext
+): Promise<string | undefined> {
+  return getRegistryToken(context);
 }
