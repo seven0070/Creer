@@ -1,0 +1,86 @@
+{
+  "name": "creer",
+  "displayName": "Creer",
+  "description": "AI-powered repo scaffolding inside your workspace",
+  "version": "0.2.0",
+  "publisher": "creer",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Snippets"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "creer.createRepo",
+        "title": "Creer: Create New Repo"
+      },
+      {
+        "command": "creer.createRepoFromChat",
+        "title": "Creer: Create from Chat Prompt"
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "creer.participant",
+        "fullName": "Creer",
+        "name": "creer",
+        "description": "Scaffold a repo with Creer",
+        "isSticky": false
+      }
+    ],
+    "configuration": {
+      "title": "Creer",
+      "properties": {
+        "creer.backendUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "Creer backend base URL"
+        },
+        "creer.initGit": {
+          "type": "boolean",
+          "default": true,
+          "description": "Initialize a git repo after scaffolding"
+        },
+        "creer.githubToken": {
+          "type": "string",
+          "default": "",
+          "description": "GitHub personal access token for creating/pushing repositories"
+        },
+        "creer.githubPrivate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Create GitHub repositories as private"
+        },
+        "creer.createGitHubRepo": {
+          "type": "boolean",
+          "default": false,
+          "description": "After scaffolding, create a GitHub remote repository"
+        },
+        "creer.previewBeforeWrite": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a plan preview and confirm before generating and writing files"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "tsc --noEmit -p ./"
+  },
+  "dependencies": {
+    "axios": "^1.7.9"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.6.3"
+  }
+}

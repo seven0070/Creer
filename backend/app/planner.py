@@ -1,0 +1,123 @@
+"""Project planner — AI-driven or template-based."""
+
+from __future__ import annotations
+
+import json
+import re
+
+from openai import OpenAI
+
+from config import MODEL, OPENAI_API_KEY
+from app.templates import apply_template, get_template, slugify
+
+_client: OpenAI | None = None
+
+
+def _get_client() -> OpenAI:
+    global _client
+    if _client is None:
+        if not OPENAI_API_KEY:
+            raise ValueError("OPENAI_API_KEY is not set")
+        _client = OpenAI(api_key=OPENAI_API_KEY)
+    return _client
+
+
+def _parse_json(content: str) -> dict:
+    """Parse model JSON, tolerating optional markdown fences."""
+    text = content.strip()
+    fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
+    if fence:
+        text = fence.group(1).strip()
+    return json.loads(text)
+
+
+def _ai_plan(idea: str) -> dict:
+    prompt = f"""
+You are a senior software architect.
+
+Convert the following idea into a clean project structure.
+
+Return ONLY valid JSON (no markdown):
+{{
+    "project_name": "...",
+    "stack": "...",
+    "files": ["path/file.py", ...]
+}}
+
+Rules:
+- project_name must be a valid folder name (lowercase, hyphens ok, no spaces)
+- files should be a focused, production-ready starter set (typically 5–15 files, max 40)
+- include README.md and a dependency manifest appropriate for the stack
+
+Idea: {idea}
+"""
+
+    response = _get_client().chat.completions.create(
+        model=MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.2,
+        response_format={"type": "json_object"},
+    )
+
+    plan = _parse_json(response.choices[0].message.content)
+    if not isinstance(plan.get("files"), list) or not plan.get("project_name"):
+        raise ValueError("Planner returned an invalid plan structure")
+    return plan
+
+
+def _ai_name_project(idea: str, template: dict) -> str:
+    """Optionally ask the model for a short project name; fall back to slugify."""
+    try:
+        prompt = f"""
+Given this project idea and stack, return ONLY valid JSON:
+{{"project_name": "short-kebab-case-name"}}
+
+Rules:
+- lowercase, hyphens ok, no spaces
+- 2–40 characters preferred
+- must be a valid folder name
+
+Idea: {idea}
+Stack: {template.get("stack", "")}
+Template: {template.get("name", "")}
+"""
+        response = _get_client().chat.completions.create(
+            model=MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            response_format={"type": "json_object"},
+        )
+        data = _parse_json(response.choices[0].message.content)
+        name = data.get("project_name")
+        if isinstance(name, str) and name.strip():
+            return slugify(name)
+    except Exception:
+        pass
+    return slugify(idea)
+
+
+def plan_project(idea: str, template_id: str | None = None) -> dict:
+    """
+    Build a project plan from an idea, optionally anchored to a curated template.
+
+    When template_id is set:
+    - files and stack come from the template
+    - project_name is derived deterministically via slugify (no API key required)
+    - if OPENAI_API_KEY is present, AI may refine project_name only
+
+    Without template_id: full AI planning (requires OPENAI_API_KEY).
+    """
+    if template_id:
+        tmpl = get_template(template_id)
+        if tmpl is None:
+            raise ValueError(f"Unknown template_id: {template_id!r}")
+
+        plan = apply_template(template_id, idea)
+
+        # Optionally refine name with AI when a key is available
+        if OPENAI_API_KEY:
+            plan["project_name"] = _ai_name_project(idea, tmpl)
+
+        return plan
+
+    return _ai_plan(idea)
