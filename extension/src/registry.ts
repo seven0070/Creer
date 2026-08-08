@@ -5,10 +5,12 @@ import {
   fetchRegistryDiscover,
   formatAxiosError,
   isPeerPolicyBlockMessage,
+  normalizeTrustStatus,
   probePeer,
   type FederatedRegistryItem,
   type FederatedRegistryPeer,
   type PeerStatus,
+  type PeerTrustStatus,
   type RegistryDiscoverPeer,
 } from './api';
 import {
@@ -16,6 +18,12 @@ import {
   isBundledSource,
 } from './marketplace';
 import { resolveRegistryToken } from './secrets';
+
+const UNSIGNED_TRUST_STATUSES: ReadonlySet<PeerTrustStatus> = new Set([
+  'unsigned',
+  'invalid',
+  'skipped',
+]);
 
 function peerHostLabel(peer: string | undefined): string | undefined {
   if (!peer?.trim()) {
@@ -32,19 +40,106 @@ function peerUrlOf(status: PeerStatus): string {
   return (status.url || status.base_url || '').trim();
 }
 
+function normalizePeerKey(url: string | undefined): string {
+  return (url || '').trim().replace(/\/$/, '');
+}
+
+function trustStatusOfPeer(peer: FederatedRegistryPeer): PeerTrustStatus | undefined {
+  return (
+    normalizeTrustStatus(peer.trust_status) ??
+    normalizeTrustStatus(peer.trust?.status) ??
+    undefined
+  );
+}
+
+function trustStatusOfProbe(status: PeerStatus): PeerTrustStatus | undefined {
+  return (
+    normalizeTrustStatus(status.trust_status) ??
+    normalizeTrustStatus(status.trust?.status) ??
+    undefined
+  );
+}
+
+function formatTrustBadge(status: PeerTrustStatus | undefined | null): string | undefined {
+  if (!status) {
+    return undefined;
+  }
+  return status;
+}
+
+function summarizePeerTrust(peers: FederatedRegistryPeer[]): string | undefined {
+  if (!peers.length) {
+    return undefined;
+  }
+  const counts: Record<PeerTrustStatus, number> = {
+    signed: 0,
+    unsigned: 0,
+    invalid: 0,
+    skipped: 0,
+  };
+  let known = 0;
+  for (const peer of peers) {
+    const status = trustStatusOfPeer(peer);
+    if (!status) {
+      continue;
+    }
+    counts[status] += 1;
+    known += 1;
+  }
+  if (known === 0) {
+    return undefined;
+  }
+  const parts: string[] = [];
+  for (const key of ['signed', 'unsigned', 'invalid', 'skipped'] as PeerTrustStatus[]) {
+    if (counts[key] > 0) {
+      parts.push(`${counts[key]} ${key}`);
+    }
+  }
+  return parts.join(', ');
+}
+
+function buildPeerTrustLookup(
+  peers: FederatedRegistryPeer[]
+): Map<string, PeerTrustStatus> {
+  const map = new Map<string, PeerTrustStatus>();
+  for (const peer of peers) {
+    const key = normalizePeerKey(peer.base_url);
+    const status = trustStatusOfPeer(peer);
+    if (key && status) {
+      map.set(key, status);
+    }
+  }
+  return map;
+}
+
+function formatTrustProbeSuffix(status: PeerStatus): string {
+  const trustStatus = trustStatusOfProbe(status);
+  if (trustStatus) {
+    return ` · trust ${trustStatus}`;
+  }
+  if (status.trust?.message && typeof status.trust.message === 'string') {
+    return ` · trust ${status.trust.message}`;
+  }
+  if (status.trust?.mode) {
+    return ` · trust mode=${status.trust.mode}`;
+  }
+  return '';
+}
+
 function formatPeerHealth(status: PeerStatus): string {
   const host = peerHostLabel(peerUrlOf(status)) || peerUrlOf(status) || 'peer';
+  const trustSuffix = formatTrustProbeSuffix(status);
   if (status.blocked || isPeerPolicyBlockMessage(status.error) || isPeerPolicyBlockMessage(status.policy)) {
     const reason = status.error || status.policy || 'policy';
-    return `$(circle-slash) ${host}: blocked (${reason})`;
+    return `$(circle-slash) ${host}: blocked (${reason})${trustSuffix}`;
   }
   if (status.ok) {
     const latency =
       typeof status.latency_ms === 'number' ? ` ${Math.round(status.latency_ms)}ms` : '';
-    return `$(check) ${host}${latency}`;
+    return `$(check) ${host}${latency}${trustSuffix}`;
   }
   const err = status.error ? `: ${status.error}` : '';
-  return `$(error) ${host}${err}`;
+  return `$(error) ${host}${err}${trustSuffix}`;
 }
 
 /**
@@ -181,6 +276,7 @@ export async function browseFederatedRegistryCommand(
   const showPeerStatus = config.get<boolean>('showPeerStatus') !== false;
   const registryPeers = config.get<string>('registryPeers') || '';
   const federatedDiscover = config.get<boolean>('federatedDiscover') === true;
+  const requireSignedPeers = config.get<boolean>('requireSignedPeers') === true;
   const maxHops = readFederationMaxHops();
 
   const q = await vscode.window.showInputBox({
@@ -208,8 +304,25 @@ export async function browseFederatedRegistryCommand(
         if (fail > 0) {
           parts.push(`${fail} fail`);
         }
+        const trustParts = peerStatuses
+          .map((p) => trustStatusOfProbe(p))
+          .filter((s): s is PeerTrustStatus => Boolean(s));
+        const trustSummary =
+          trustParts.length > 0
+            ? (() => {
+                const counts: Partial<Record<PeerTrustStatus, number>> = {};
+                for (const s of trustParts) {
+                  counts[s] = (counts[s] || 0) + 1;
+                }
+                return (['signed', 'unsigned', 'invalid', 'skipped'] as PeerTrustStatus[])
+                  .filter((k) => (counts[k] || 0) > 0)
+                  .map((k) => `${counts[k]} ${k}`)
+                  .join(', ');
+              })()
+            : undefined;
         void vscode.window.showInformationMessage(
           `Creer peers: ${parts.join(', ')}` +
+            (trustSummary ? ` · trust ${trustSummary}` : '') +
             (peerStatuses.some((p) => p.ok && typeof p.latency_ms === 'number')
               ? ` · ${peerStatuses
                   .filter((p) => p.ok && typeof p.latency_ms === 'number')
@@ -228,6 +341,7 @@ export async function browseFederatedRegistryCommand(
   let items: FederatedRegistryItem[];
   let peerCount = 0;
   let federatedPeers: FederatedRegistryPeer[] = [];
+  let filteredAllPeerItems = false;
   try {
     const federated = await vscode.window.withProgress(
       {
@@ -249,11 +363,35 @@ export async function browseFederatedRegistryCommand(
     federatedPeers = federated.peers ?? [];
     peerCount = federatedPeers.length;
     const policySummary = summarizeFederatedPeerPolicy(federatedPeers);
+    const trustSummary = summarizePeerTrust(federatedPeers);
     const hasPeerErrors = federatedPeers.some(
       (p) => !p.ok || Boolean(p.error) || isFederatedPeerBlocked(p)
     );
     if (policySummary && (federated.policy || hasPeerErrors)) {
       void vscode.window.showInformationMessage(`Creer federation: ${policySummary}`);
+    }
+    if (trustSummary) {
+      void vscode.window.showInformationMessage(`Creer peer trust: ${trustSummary}`);
+    }
+
+    if (requireSignedPeers) {
+      const trustByPeer = buildPeerTrustLookup(federatedPeers);
+      const beforeRemote = items.filter((i) => Boolean(i.peer)).length;
+      items = items.filter((item) => {
+        if (!item.peer) {
+          return true; // keep local
+        }
+        const status = trustByPeer.get(normalizePeerKey(item.peer));
+        if (!status) {
+          // Older backends without trust_status: keep for compatibility
+          return true;
+        }
+        return !UNSIGNED_TRUST_STATUSES.has(status);
+      });
+      const afterRemote = items.filter((i) => Boolean(i.peer)).length;
+      if (beforeRemote > 0 && afterRemote === 0) {
+        filteredAllPeerItems = true;
+      }
     }
   } catch (err) {
     const message = formatAxiosError(err, 'Federated registry unavailable');
@@ -262,6 +400,23 @@ export async function browseFederatedRegistryCommand(
         'Try “Creer: Browse Pack Registry” or configure creer.registryPeers / CREER_REGISTRY_PEERS.'
     );
     return;
+  }
+
+  if (filteredAllPeerItems && items.filter((i) => !i.peer).length === 0) {
+    void vscode.window.showWarningMessage(
+      'Creer: requireSignedPeers hid all federated packs (no signed peers). ' +
+        'Configure matching CREER_PEER_TRUST_SECRET (and CREER_PEER_TRUST_MODE) on this host and peers, ' +
+        'or disable creer.requireSignedPeers. HMAC peer trust verifies registry responses; mTLS remains optional future / human infra.'
+    );
+    return;
+  }
+
+  if (filteredAllPeerItems) {
+    void vscode.window.showWarningMessage(
+      'Creer: requireSignedPeers hid all peer packs (unsigned/invalid/skipped). ' +
+        'Local packs are still shown. Set CREER_PEER_TRUST_SECRET / CREER_PEER_TRUST_MODE on peers for HMAC signatures, ' +
+        'or turn off creer.requireSignedPeers.'
+    );
   }
 
   if (items.length === 0) {
@@ -275,6 +430,8 @@ export async function browseFederatedRegistryCommand(
 
   type PickItem = vscode.QuickPickItem & { fed?: FederatedRegistryItem };
   const picks: PickItem[] = [];
+  const trustByPeer = buildPeerTrustLookup(federatedPeers);
+  const peerTrustSummary = summarizePeerTrust(federatedPeers);
 
   if (showPeerStatus && peerStatuses && peerStatuses.length > 0) {
     picks.push({
@@ -282,18 +439,35 @@ export async function browseFederatedRegistryCommand(
       kind: vscode.QuickPickItemKind.Separator,
     });
     for (const status of peerStatuses) {
+      const trustStatus = trustStatusOfProbe(status);
       picks.push({
         label: formatPeerHealth(status),
         description: peerUrlOf(status),
         detail: status.blocked
           ? status.error || status.policy || 'blocked by policy'
           : status.ok
-            ? typeof status.count === 'number'
-              ? `${status.count} packs`
-              : 'reachable'
+            ? [
+                typeof status.count === 'number' ? `${status.count} packs` : 'reachable',
+                trustStatus ? `trust ${trustStatus}` : undefined,
+              ]
+                .filter(Boolean)
+                .join(' · ')
             : status.error || 'unreachable',
       });
     }
+    picks.push({
+      label: 'Packs',
+      kind: vscode.QuickPickItemKind.Separator,
+    });
+  } else if (peerTrustSummary) {
+    picks.push({
+      label: 'Peer trust',
+      kind: vscode.QuickPickItemKind.Separator,
+    });
+    picks.push({
+      label: `$(shield) ${peerTrustSummary}`,
+      description: 'peer_meta trust_status',
+    });
     picks.push({
       label: 'Packs',
       kind: vscode.QuickPickItemKind.Separator,
@@ -320,6 +494,12 @@ export async function browseFederatedRegistryCommand(
     if (item.version) {
       parts.push(item.version);
     }
+    if (item.peer) {
+      const badge = formatTrustBadge(trustByPeer.get(normalizePeerKey(item.peer)));
+      if (badge) {
+        parts.push(badge);
+      }
+    }
     return {
       label: host
         ? `$(cloud) ${item.name || item.id}`
@@ -338,7 +518,9 @@ export async function browseFederatedRegistryCommand(
   }
 
   const picked = await vscode.window.showQuickPick(picks, {
-    placeHolder: 'Select a federated pack to install (peer host shown in description)',
+    placeHolder: requireSignedPeers
+      ? 'Select a federated pack (signed peers only when requireSignedPeers)'
+      : 'Select a federated pack to install (peer host shown in description)',
     ignoreFocusOut: true,
     matchOnDescription: true,
     matchOnDetail: true,
@@ -456,15 +638,34 @@ export async function manageRegistryPeersCommand(
           livePeers
             .map((p) => {
               const host = peerHostLabel(peerUrlOf(p)) || peerUrlOf(p);
+              const trust = trustStatusOfProbe(p);
+              const trustBit = trust ? ` trust=${trust}` : '';
               if (p.blocked) {
-                return `${host} blocked`;
+                return `${host} blocked${trustBit}`;
               }
               return p.ok
-                ? `${host} ok${typeof p.latency_ms === 'number' ? ` ${Math.round(p.latency_ms)}ms` : ''}`
-                : `${host} fail`;
+                ? `${host} ok${typeof p.latency_ms === 'number' ? ` ${Math.round(p.latency_ms)}ms` : ''}${trustBit}`
+                : `${host} fail${trustBit}`;
             })
             .join('; ')
       );
+      const trustSummary = (() => {
+        const counts: Partial<Record<PeerTrustStatus, number>> = {};
+        for (const p of livePeers) {
+          const s = trustStatusOfProbe(p);
+          if (!s) {
+            continue;
+          }
+          counts[s] = (counts[s] || 0) + 1;
+        }
+        return (['signed', 'unsigned', 'invalid', 'skipped'] as PeerTrustStatus[])
+          .filter((k) => (counts[k] || 0) > 0)
+          .map((k) => `${counts[k]} ${k}`)
+          .join(', ');
+      })();
+      if (trustSummary) {
+        lines.push(`Trust: ${trustSummary}`);
+      }
     }
   } else {
     lines.push('Backend peer endpoints unavailable (soft-fail). You can still edit creer.registryPeers.');
@@ -556,8 +757,14 @@ export async function manageRegistryPeersCommand(
           typeof result.latency_ms === 'number'
             ? ` (${Math.round(result.latency_ms)}ms)`
             : '';
+        const trust = trustStatusOfProbe(result);
+        const trustMsg = trust
+          ? ` Trust: ${trust}.`
+          : result.trust?.mode
+            ? ` Trust mode=${result.trust.mode}.`
+            : '';
         void vscode.window.showInformationMessage(
-          `Creer: peer reachable${latency}.`
+          `Creer: peer reachable${latency}.${trustMsg}`
         );
       }
     } catch (err) {

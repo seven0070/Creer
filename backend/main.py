@@ -48,11 +48,12 @@ from app.federation import (
     probe_peer,
 )
 from app.peer_policy import assert_peer_allowed
+from app.peer_trust import trust_enabled, trust_mode
 from app.github import create_github_repo
 from app.jobs import cancel_job, create_job, finish_job, is_cancelled
 from app.quality import has_errors, run_quality_gates
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 app = FastAPI(title="Creer", version=VERSION)
 
@@ -179,6 +180,8 @@ def health():
         "auth_required": registry_auth_required(),
         "federation_max_hops": CREER_FEDERATION_MAX_HOPS,
         "allow_private_peers": CREER_ALLOW_PRIVATE_PEERS,
+        "peer_trust_mode": trust_mode(),
+        "peer_trust_signing": trust_enabled(),
     }
 
 

@@ -2,7 +2,7 @@
   "name": "creer",
   "displayName": "Creer",
   "description": "AI-powered repo scaffolding inside your workspace",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "publisher": "creer",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -176,6 +176,11 @@
           "type": "boolean",
           "default": true,
           "description": "Warn before adding or probing peers whose host looks like localhost or a private IP"
+        },
+        "creer.requireSignedPeers": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, hide federated packs from peers whose trust_status is unsigned, invalid, or skipped (local packs always kept). Uses client-side filtering of peer_meta trust_status from the federated response."
         },
         "creer.registryToken": {
           "type": "string",

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.0
+
+HMAC peer trust UX: surface backend `trust` / `trust_status` and optionally hide unsigned peers.
+
+- Setting: `creer.requireSignedPeers` (default false) — client-side filter hides federated packs from peers whose `trust_status` is `unsigned`, `invalid`, or `skipped` (local packs always kept)
+- API types: optional `trust` blocks on discover/registry; federated `peer_meta` / probe `trust_status`: `signed` | `unsigned` | `invalid` | `skipped`
+- **Browse Federated Registry** — peer trust summary (e.g. “2 signed, 1 unsigned”); QuickPick descriptions append a trust badge from peer meta
+- **Manage Registry Peers** / probe — show trust info when the probe/status response includes it
+- When `requireSignedPeers` filters out all peer packs, explain HMAC trust / `CREER_PEER_TRUST_SECRET` (+ mode)
+- Keeps `max_hops` / federated discover wiring from v1.1
+
 ## 1.1.0
 
 Discovery hardening: surface backend peer policy (SSRF / private IP / allow-deny / max hops) cleanly in the extension.
