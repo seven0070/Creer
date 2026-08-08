@@ -1,6 +1,6 @@
 # Creer
 
-Cursor Agent Skills collection. Skills here are meant for **global** (user-level) install.
+Cursor Agent Skills collection.
 
 ## Skills
 
@@ -8,26 +8,45 @@ Cursor Agent Skills collection. Skills here are meant for **global** (user-level
 |-------|-------------|
 | [praisonai](skills/praisonai/) | Build PraisonAI agents, multi-agent teams, MCP tools, YAML workflows, and Agent Skills |
 
-## Install globally
+## How to load the skill
 
-Copy a skill into your user skills directory so it applies across all projects:
+Cursor discovers skills from these locations:
+
+| Location | Scope |
+|----------|-------|
+| `.cursor/skills/` | This project (auto-loaded when Creer is open) |
+| `~/.cursor/skills/` | Global — all projects on your machine |
+
+### Option A — Global (recommended)
+
+Copy once; works in every project:
 
 ```bash
 mkdir -p ~/.cursor/skills
 cp -R skills/praisonai ~/.cursor/skills/
 ```
 
-Or symlink:
+Restart Cursor or start a **new Agent chat**, then type `/praisonai` or `@praisonai`.
 
-```bash
-mkdir -p ~/.cursor/skills
-ln -s "$(pwd)/skills/praisonai" ~/.cursor/skills/praisonai
-```
+### Option B — Project-only
 
-Then invoke with `/praisonai` or `@praisonai` in Agent chat.
+Open this repo in Cursor. The skill is at `.cursor/skills/praisonai/` and loads automatically for this workspace.
 
-You can also install via **Customize → Rules → Add Rule → Remote Rule (Github)** pointing at this repository.
+### Option C — GitHub remote rule
 
-Skill format follows the [Agent Skills](https://agentskills.io) standard.
+**Customize → Rules → Add Rule → Remote Rule (Github)** → `https://github.com/seven0070/Creer`
 
-Source material for the PraisonAI skill: [MervinPraison/PraisonAI](https://github.com/MervinPraison/PraisonAI).
+**Important:** the skill must exist on the branch you sync from. Merge [PR #1](https://github.com/seven0070/Creer/pull/1) into `main` first, or point the remote rule at branch `cursor/praisonai-skill-5310` until merged.
+
+## Troubleshooting
+
+| Problem | Fix |
+|---------|-----|
+| `/praisonai` not found | Copy to `~/.cursor/skills/` (Option A) or open this repo (Option B) |
+| GitHub remote rule empty | Merge PR #1 to `main`, or use the feature branch |
+| Skill not in current chat | Start a **new** Agent chat after installing |
+| Only works on cloud VM | Global install is per-machine — run the `cp` command on **your** computer |
+
+Skill format: [Agent Skills](https://agentskills.io) standard.
+
+Source: [MervinPraison/PraisonAI](https://github.com/MervinPraison/PraisonAI).
