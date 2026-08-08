@@ -2,7 +2,7 @@
   "name": "creer",
   "displayName": "Creer",
   "description": "AI-powered repo scaffolding inside your workspace",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "publisher": "creer",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -52,6 +52,10 @@
       {
         "command": "creer.browseRegistry",
         "title": "Creer: Browse Pack Registry"
+      },
+      {
+        "command": "creer.browseFederatedRegistry",
+        "title": "Creer: Browse Federated Registry"
       }
     ],
     "chatParticipants": [

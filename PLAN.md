@@ -9,11 +9,12 @@
 - **v0.5** — Content diff preview before write, multi-root workspace targeting, installable JSON/YAML template packs
 - **v0.6** — Pack marketplace + remote URL install/delete, side-by-side conflict diffs, publish packaging
 - **v0.7** — Self-hosted pack registry (`/registry` + download), extension icon, Browse Pack Registry, release changelog
+- **v0.8** — Federated registry (`/registry/federated` + peers), Browse Federated Registry UI, GitHub Actions release + CI (artifact-first; signed publish when secrets exist)
 
 ## Optional next
 
-- Signed publisher release with real Marketplace/Open VSX tokens (human step)
-- Federated multi-host registry discovery
+- Human: configure `VSCE_PAT` / `OVSX_PAT` repository secrets for signed Marketplace / Open VSX publish
+- More registry peers / richer federation discovery UX
 
 ## Non-goals
 

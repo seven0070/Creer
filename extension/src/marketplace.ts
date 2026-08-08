@@ -9,7 +9,7 @@ import {
   type RegistryItem,
 } from './api';
 
-function resolveInstallUrl(url: string | undefined): string | undefined {
+export function resolveInstallUrl(url: string | undefined): string | undefined {
   const trimmed = url?.trim();
   if (!trimmed) {
     return undefined;
@@ -62,7 +62,7 @@ export async function installPackFromUrlCommand(): Promise<void> {
   }
 }
 
-function isBundledSource(source: string | undefined): boolean {
+export function isBundledSource(source: string | undefined): boolean {
   if (!source) {
     return false;
   }
@@ -70,7 +70,7 @@ function isBundledSource(source: string | undefined): boolean {
   return s === 'bundled' || s === 'builtin' || s === 'built-in' || s === 'local';
 }
 
-async function installFromResolvedUrl(
+export async function installFromResolvedUrl(
   label: string,
   url: string | undefined
 ): Promise<void> {

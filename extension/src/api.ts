@@ -207,6 +207,59 @@ export async function fetchRegistry(options?: {
   };
 }
 
+/** Item from a federated registry merge; `peer` is set when sourced from a remote host. */
+export interface FederatedRegistryItem extends RegistryItem {
+  /** Peer base URL when the item came from a remote Creer registry. */
+  peer?: string;
+}
+
+export interface FederatedRegistryPeer {
+  base_url: string;
+  ok?: boolean;
+  count?: number;
+  error?: string | null;
+}
+
+export interface FederatedRegistryResponse {
+  version?: string;
+  /** Local registry snapshot. */
+  local: RegistryResponse | {
+    version?: string;
+    base_url?: string | null;
+    items?: RegistryItem[];
+  };
+  /** Configured peer hosts (reachable or not). */
+  peers: FederatedRegistryPeer[];
+  /** Merged catalog; peer-sourced rows may include `peer`. */
+  items: FederatedRegistryItem[];
+}
+
+/**
+ * GET /registry/federated?q=&source= — local + peer registry merge.
+ */
+export async function fetchFederatedRegistry(options?: {
+  q?: string;
+  source?: string;
+}): Promise<FederatedRegistryResponse> {
+  const backendUrl = getBackendUrl();
+  const response = await axios.get<FederatedRegistryResponse>(
+    `${backendUrl}/registry/federated`,
+    {
+      timeout: 60_000,
+      params: {
+        q: options?.q || undefined,
+        source: options?.source || undefined,
+      },
+    }
+  );
+  return {
+    version: response.data.version,
+    local: response.data.local ?? { items: [] },
+    peers: response.data.peers ?? [],
+    items: response.data.items ?? [],
+  };
+}
+
 /**
  * DELETE /packs/{id} → delete installed pack
  */
