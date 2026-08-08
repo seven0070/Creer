@@ -1,0 +1,14 @@
+.DS_Store
+*.log
+.env
+**/venv/
+**/__pycache__/
+**/node_modules/
+**/out/
+*.pyc
+.pytest_cache/
+certs/*.pem
+certs/*.key
+certs/*.csr
+certs/*.srl
+!certs/.gitkeep

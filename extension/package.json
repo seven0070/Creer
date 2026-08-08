@@ -1,0 +1,226 @@
+{
+  "name": "creer",
+  "displayName": "Creer",
+  "description": "AI-powered repo scaffolding inside your workspace",
+  "version": "1.5.0",
+  "publisher": "creer",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/seven0070/Creer.git"
+  },
+  "homepage": "https://github.com/seven0070/Creer",
+  "bugs": {
+    "url": "https://github.com/seven0070/Creer/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Snippets"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "creer.createRepo",
+        "title": "Creer: Create New Repo"
+      },
+      {
+        "command": "creer.createRepoFromChat",
+        "title": "Creer: Create from Chat Prompt"
+      },
+      {
+        "command": "creer.setGitHubToken",
+        "title": "Creer: Set GitHub Token"
+      },
+      {
+        "command": "creer.clearGitHubToken",
+        "title": "Creer: Clear GitHub Token"
+      },
+      {
+        "command": "creer.setRegistryToken",
+        "title": "Creer: Set Registry Token"
+      },
+      {
+        "command": "creer.clearRegistryToken",
+        "title": "Creer: Clear Registry Token"
+      },
+      {
+        "command": "creer.installPackFromUrl",
+        "title": "Creer: Install Pack from URL"
+      },
+      {
+        "command": "creer.browseMarketplace",
+        "title": "Creer: Browse Pack Marketplace"
+      },
+      {
+        "command": "creer.browseRegistry",
+        "title": "Creer: Browse Pack Registry"
+      },
+      {
+        "command": "creer.browseFederatedRegistry",
+        "title": "Creer: Browse Federated Registry"
+      },
+      {
+        "command": "creer.manageRegistryPeers",
+        "title": "Creer: Manage Registry Peers"
+      },
+      {
+        "command": "creer.doctor",
+        "title": "Creer: Doctor"
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "creer.participant",
+        "fullName": "Creer",
+        "name": "creer",
+        "description": "Scaffold a repo with Creer",
+        "isSticky": false
+      }
+    ],
+    "configuration": {
+      "title": "Creer",
+      "properties": {
+        "creer.backendUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "Creer backend base URL"
+        },
+        "creer.initGit": {
+          "type": "boolean",
+          "default": true,
+          "description": "Initialize a git repo after scaffolding"
+        },
+        "creer.githubToken": {
+          "type": "string",
+          "default": "",
+          "description": "DEPRECATED: Prefer SecretStorage via 'Creer: Set GitHub Token'. Used only as a fallback when SecretStorage is empty.",
+          "deprecationMessage": "Use 'Creer: Set GitHub Token' (SecretStorage) instead of storing the token in settings."
+        },
+        "creer.githubPrivate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Create GitHub repositories as private"
+        },
+        "creer.createGitHubRepo": {
+          "type": "boolean",
+          "default": false,
+          "description": "After scaffolding, create a GitHub remote repository"
+        },
+        "creer.previewBeforeWrite": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a plan preview and confirm before generating and writing files"
+        },
+        "creer.useStreaming": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use SSE streaming (/generate/stream) with per-file progress; falls back to /generate on failure"
+        },
+        "creer.license": {
+          "type": "string",
+          "default": "mit",
+          "enum": [
+            "mit",
+            "apache-2.0",
+            "none"
+          ],
+          "description": "License bake-in for generated projects"
+        },
+        "creer.ciPreset": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "python",
+            "node",
+            "none"
+          ],
+          "description": "CI workflow bake-in preset for generated projects"
+        },
+        "creer.promptBakeins": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, QuickPick license and CI each run; when false, use creer.license and creer.ciPreset"
+        },
+        "creer.contentPreview": {
+          "type": "boolean",
+          "default": true,
+          "description": "After generate, before write, show a content preview/diff and confirm"
+        },
+        "creer.showConflictDiffs": {
+          "type": "boolean",
+          "default": true,
+          "description": "When conflicts exist, offer Review diffs (side-by-side vscode.diff). When false, only Overwrite all / Skip existing / Cancel"
+        },
+        "creer.defaultWorkspaceFolder": {
+          "type": "string",
+          "default": "",
+          "description": "Optional workspace folder name or path hint for multi-root workspaces; empty prompts when multiple folders are open"
+        },
+        "creer.registryPeers": {
+          "type": "string",
+          "default": "",
+          "description": "Comma-separated peer base URLs used when browsing the federated registry (passed as peers= query)"
+        },
+        "creer.showPeerStatus": {
+          "type": "boolean",
+          "default": true,
+          "description": "When browsing the federated registry, show peer health summary (ok/fail/latency)"
+        },
+        "creer.federatedDiscover": {
+          "type": "boolean",
+          "default": false,
+          "description": "When browsing the federated registry, pass discover=true for one-hop peer expansion"
+        },
+        "creer.federationMaxHops": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Max peer-discovery hops for federated browse (sent as max_hops when the backend supports it). 0 = configured peers only; 1 = one hop; 2 = two hops."
+        },
+        "creer.warnPrivatePeers": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn before adding or probing peers whose host looks like localhost or a private IP"
+        },
+        "creer.requireSignedPeers": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, hide federated packs from peers whose trust_status is unsigned, invalid, or skipped (local packs always kept). Uses client-side filtering of peer_meta trust_status from the federated response."
+        },
+        "creer.registryToken": {
+          "type": "string",
+          "default": "",
+          "description": "DEPRECATED: Prefer SecretStorage via 'Creer: Set Registry Token'. Used only as a fallback when SecretStorage is empty. Sent as Bearer / X-Creer-Token on mutating registry requests when the backend has CREER_REGISTRY_TOKEN.",
+          "deprecationMessage": "Use 'Creer: Set Registry Token' (SecretStorage) instead of storing the token in settings."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "CREER_MINIFY=1 npm run compile",
+    "check": "tsc --noEmit -p ./",
+    "compile": "npm run check && node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "lint": "npm run check",
+    "package": "CREER_MINIFY=1 npm run compile && npx --yes @vscode/vsce package --no-dependencies",
+    "publish:ovsx": "echo \"Set OVSX_PAT then run: npx --yes ovsx publish\" && exit 1",
+    "publish:marketplace": "echo \"Set VSCE_PAT then run: npx --yes @vscode/vsce publish\" && exit 1"
+  },
+  "dependencies": {
+    "axios": "^1.7.9"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.6.3"
+  }
+}
