@@ -2,18 +2,27 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import {
   createGitHubRepo,
+  fetchBakeins,
   fetchTemplates,
   formatAxiosError,
   postGenerate,
   postPlan,
+  type BakeinOptions,
+  type CiBakein,
   type GenerateResponse,
+  type LicenseBakein,
   type PlanResponse,
+  type QualityIssue,
   type Template,
 } from './api';
 import { addRemoteAndPush, ensureGitRepo, initGit } from './git';
 import { showPlanPreviewAndConfirm } from './preview';
 import { resolveGitHubToken } from './secrets';
-import { streamGenerate, type StreamProgressEvent } from './streamGenerate';
+import {
+  isCancellationError,
+  streamGenerate,
+  type StreamProgressEvent,
+} from './streamGenerate';
 import {
   assertSafeProjectName,
   findConflicts,
@@ -29,6 +38,19 @@ export interface ScaffoldOptions {
   /** Use chat-style InputBox placeholder (/creer …). */
   fromChat?: boolean;
 }
+
+const LICENSE_FALLBACK: Array<{ id: LicenseBakein; name: string }> = [
+  { id: 'mit', name: 'MIT' },
+  { id: 'apache-2.0', name: 'Apache-2.0' },
+  { id: 'none', name: 'None' },
+];
+
+const CI_FALLBACK: Array<{ id: CiBakein; name: string }> = [
+  { id: 'auto', name: 'Auto (detect from stack)' },
+  { id: 'python', name: 'Python' },
+  { id: 'node', name: 'Node' },
+  { id: 'none', name: 'None' },
+];
 
 function stripCreerPrefix(raw: string): string {
   return raw.replace(/^\s*\/creer\b\s*/i, '').trim();
@@ -86,6 +108,90 @@ async function pickTemplate(templates: Template[]): Promise<string | undefined |
     return null;
   }
   return picked.templateId;
+}
+
+function isLicenseBakein(v: string): v is LicenseBakein {
+  return v === 'mit' || v === 'apache-2.0' || v === 'none';
+}
+
+function isCiBakein(v: string): v is CiBakein {
+  return v === 'auto' || v === 'python' || v === 'node' || v === 'none';
+}
+
+/**
+ * Resolve bake-in options from settings, optionally prompting via QuickPick
+ * when `creer.promptBakeins` is true.
+ * Returns null if the user cancels a prompt.
+ */
+async function resolveBakeins(): Promise<BakeinOptions | null> {
+  const config = vscode.workspace.getConfiguration('creer');
+  const promptBakeins = config.get<boolean>('promptBakeins') ?? true;
+  const settingsLicense = config.get<string>('license') ?? 'mit';
+  const settingsCi = config.get<string>('ciPreset') ?? 'auto';
+
+  const defaultLicense: LicenseBakein = isLicenseBakein(settingsLicense)
+    ? settingsLicense
+    : 'mit';
+  const defaultCi: CiBakein = isCiBakein(settingsCi) ? settingsCi : 'auto';
+
+  if (!promptBakeins) {
+    return { license: defaultLicense, ci: defaultCi };
+  }
+
+  let licenses: Array<{ id: string; name: string }> = LICENSE_FALLBACK.map((l) => ({
+    id: l.id,
+    name: l.name,
+  }));
+  let ciOptions: Array<{ id: string; name: string }> = CI_FALLBACK.map((c) => ({
+    id: c.id,
+    name: c.name,
+  }));
+
+  try {
+    const remote = await fetchBakeins();
+    if (remote.licenses.length > 0) {
+      licenses = remote.licenses;
+    }
+    if (remote.ci.length > 0) {
+      ciOptions = remote.ci;
+    }
+  } catch {
+    // Use built-in fallbacks when /bakeins is unavailable.
+  }
+
+  const licenseItems: Array<vscode.QuickPickItem & { value: string }> = licenses.map(
+    (l) => ({
+      label: l.name,
+      description: l.id,
+      value: l.id,
+    })
+  );
+  const licensePick = await vscode.window.showQuickPick(licenseItems, {
+    placeHolder: `Select a license (default: ${defaultLicense})`,
+    ignoreFocusOut: true,
+    matchOnDescription: true,
+  });
+  if (!licensePick) {
+    return null;
+  }
+
+  const ciItems: Array<vscode.QuickPickItem & { value: string }> = ciOptions.map((c) => ({
+    label: c.name,
+    description: c.id,
+    value: c.id,
+  }));
+  const ciPick = await vscode.window.showQuickPick(ciItems, {
+    placeHolder: `Select a CI preset (default: ${defaultCi})`,
+    ignoreFocusOut: true,
+    matchOnDescription: true,
+  });
+  if (!ciPick) {
+    return null;
+  }
+
+  const license = isLicenseBakein(licensePick.value) ? licensePick.value : defaultLicense;
+  const ci = isCiBakein(ciPick.value) ? ciPick.value : defaultCi;
+  return { license, ci };
 }
 
 async function maybeCreateGitHubRemote(
@@ -153,7 +259,10 @@ function reportStreamProgress(
   ev: StreamProgressEvent
 ): void {
   if (ev.event === 'start') {
-    progress.report({ message: `Starting ${ev.project_name} (${ev.total} files)…` });
+    const jobNote = ev.job_id ? ` · job ${ev.job_id}` : '';
+    progress.report({
+      message: `Starting ${ev.project_name} (${ev.total} files)${jobNote}…`,
+    });
     return;
   }
   if (ev.event === 'file') {
@@ -164,15 +273,58 @@ function reportStreamProgress(
   }
 }
 
+function reportQualityIssues(quality: QualityIssue[] | undefined): void {
+  if (!quality || quality.length === 0) {
+    return;
+  }
+
+  const errors = quality.filter((q) => {
+    const s = (q.severity || '').toLowerCase();
+    return s === 'error' || s === 'critical' || s === 'fatal';
+  });
+  const warnings = quality.filter((q) => {
+    const s = (q.severity || '').toLowerCase();
+    return s === 'warning' || s === 'warn';
+  });
+  const other = quality.length - errors.length - warnings.length;
+
+  if (errors.length > 0) {
+    const sample = errors
+      .slice(0, 3)
+      .map((e) => (e.path ? `${e.code} (${e.path})` : e.code))
+      .join(', ');
+    const more = errors.length > 3 ? ` (+${errors.length - 3} more)` : '';
+    void vscode.window.showErrorMessage(
+      `Creer quality gates reported ${errors.length} error(s)` +
+        (warnings.length ? `, ${warnings.length} warning(s)` : '') +
+        `: ${sample}${more}`
+    );
+    return;
+  }
+
+  const parts: string[] = [];
+  if (warnings.length) {
+    parts.push(`${warnings.length} warning(s)`);
+  }
+  if (other > 0) {
+    parts.push(`${other} other issue(s)`);
+  }
+  void vscode.window.showWarningMessage(
+    `Creer quality gates: ${parts.join(', ') || `${quality.length} issue(s)`}.`
+  );
+}
+
 async function generateWithOptionalStream(
   idea: string,
   plan: PlanResponse,
   templateId: string | undefined,
-  useStreaming: boolean
+  useStreaming: boolean,
+  bakeins: BakeinOptions
 ): Promise<GenerateResponse> {
   const genOpts = {
     templateId: plan.template_id ?? templateId,
     plan,
+    bakeins,
   };
 
   if (!useStreaming) {
@@ -191,17 +343,31 @@ async function generateWithOptionalStream(
       {
         location: vscode.ProgressLocation.Notification,
         title: 'Creer: generating project…',
-        cancellable: false,
+        cancellable: true,
       },
-      async (progress) =>
-        streamGenerate({
-          idea,
-          templateId: genOpts.templateId,
-          plan: genOpts.plan,
-          onProgress: (ev) => reportStreamProgress(progress, ev),
-        })
+      async (progress, cancellationToken) => {
+        const controller = new AbortController();
+        const sub = cancellationToken.onCancellationRequested(() => {
+          controller.abort();
+        });
+        try {
+          return await streamGenerate({
+            idea,
+            templateId: genOpts.templateId,
+            plan: genOpts.plan,
+            bakeins: genOpts.bakeins,
+            signal: controller.signal,
+            onProgress: (ev) => reportStreamProgress(progress, ev),
+          });
+        } finally {
+          sub.dispose();
+        }
+      }
     );
   } catch (err) {
+    if (isCancellationError(err)) {
+      throw err;
+    }
     const message = formatAxiosError(err, 'Streaming generate failed');
     vscode.window.showWarningMessage(
       `Streaming failed (${message}); falling back to non-streaming generate.`
@@ -293,13 +459,31 @@ export async function runScaffoldFlow(options: ScaffoldOptions): Promise<void> {
       }
     }
 
-    // 4) Generate (streaming with progress when enabled)
-    const generated = await generateWithOptionalStream(
-      idea,
-      plan,
-      templateId,
-      useStreaming
-    );
+    // 4) Bake-ins (license / CI)
+    const bakeins = await resolveBakeins();
+    if (!bakeins) {
+      return;
+    }
+
+    // 5) Generate (streaming with cancellable progress when enabled)
+    let generated: GenerateResponse;
+    try {
+      generated = await generateWithOptionalStream(
+        idea,
+        plan,
+        templateId,
+        useStreaming,
+        bakeins
+      );
+    } catch (err) {
+      if (isCancellationError(err)) {
+        void vscode.window.showInformationMessage('Creer generation cancelled.');
+        return;
+      }
+      throw err;
+    }
+
+    reportQualityIssues(generated.quality);
 
     const projectName = generated.project_name || plan.project_name;
     const files = generated.files;
@@ -331,21 +515,21 @@ export async function runScaffoldFlow(options: ScaffoldOptions): Promise<void> {
       return;
     }
 
-    // 5) Conflict resolution
+    // 6) Conflict resolution
     const conflicts = findConflicts(projectPath, files);
     const resolution = await resolveConflicts(conflicts);
     if (resolution === 'cancel') {
       return;
     }
 
-    // 6) Write
+    // 7) Write
     const { written, skipped } = writeProjectFiles(projectPath, files, resolution);
     if (written === 0 && skipped === 0) {
       vscode.window.showWarningMessage('No files were written.');
       return;
     }
 
-    // 7) Git init
+    // 8) Git init
     if (shouldInitGit) {
       try {
         await initGit(projectPath);
@@ -355,7 +539,7 @@ export async function runScaffoldFlow(options: ScaffoldOptions): Promise<void> {
       }
     }
 
-    // 8) GitHub remote (optional)
+    // 9) GitHub remote (optional)
     await maybeCreateGitHubRemote(context, projectPath, projectName, idea);
 
     const skipNote = skipped > 0 ? ` (${skipped} existing skipped)` : '';
@@ -363,6 +547,10 @@ export async function runScaffoldFlow(options: ScaffoldOptions): Promise<void> {
       `Project ${projectName} created at ${projectPath}${skipNote}.`
     );
   } catch (err) {
+    if (isCancellationError(err)) {
+      void vscode.window.showInformationMessage('Creer generation cancelled.');
+      return;
+    }
     const message = formatAxiosError(err, 'Creer failed');
     vscode.window.showErrorMessage(`Creer failed: ${message}`);
   }

@@ -17,17 +17,51 @@ export interface PlanResponse {
   description?: string;
 }
 
+export type LicenseBakein = 'mit' | 'apache-2.0' | 'none';
+export type CiBakein = 'auto' | 'python' | 'node' | 'none';
+
+export interface BakeinOptions {
+  license: LicenseBakein;
+  ci: CiBakein;
+  include_readme?: boolean;
+}
+
+export interface BakeinChoice {
+  id: string;
+  name: string;
+}
+
+export interface BakeinsResponse {
+  licenses: BakeinChoice[];
+  ci: BakeinChoice[];
+}
+
+export interface QualityIssue {
+  code: string;
+  severity: string;
+  message: string;
+  path?: string;
+}
+
 export interface GenerateResponse {
   project_name: string;
   stack?: string;
   files: Record<string, string>;
   template_id?: string;
+  quality?: QualityIssue[];
 }
 
 export interface GitHubCreateRepoResponse {
   html_url: string;
   clone_url: string;
   full_name: string;
+}
+
+export interface GenerateOptions {
+  templateId?: string;
+  plan?: PlanResponse;
+  jobId?: string;
+  bakeins?: BakeinOptions;
 }
 
 function getBackendUrl(): string {
@@ -60,6 +94,27 @@ export async function fetchTemplates(): Promise<Template[]> {
   return response.data.templates ?? [];
 }
 
+export async function fetchBakeins(): Promise<BakeinsResponse> {
+  const backendUrl = getBackendUrl();
+  const response = await axios.get<BakeinsResponse>(`${backendUrl}/bakeins`, {
+    timeout: 30_000,
+  });
+  return {
+    licenses: response.data.licenses ?? [],
+    ci: response.data.ci ?? [],
+  };
+}
+
+export async function postCancel(jobId: string): Promise<{ cancelled: true }> {
+  const backendUrl = getBackendUrl();
+  const response = await axios.post<{ cancelled: true }>(
+    `${backendUrl}/generate/cancel`,
+    { job_id: jobId },
+    { timeout: 30_000 }
+  );
+  return response.data;
+}
+
 export async function postPlan(idea: string, templateId?: string): Promise<PlanResponse> {
   const backendUrl = getBackendUrl();
   const body: { idea: string; template_id?: string } = { idea };
@@ -74,19 +129,27 @@ export async function postPlan(idea: string, templateId?: string): Promise<PlanR
 
 export async function postGenerate(
   idea: string,
-  options?: { templateId?: string; plan?: PlanResponse }
+  options?: GenerateOptions
 ): Promise<GenerateResponse> {
   const backendUrl = getBackendUrl();
   const body: {
     idea: string;
     template_id?: string;
     plan?: PlanResponse;
+    job_id?: string;
+    bakeins?: BakeinOptions;
   } = { idea };
   if (options?.templateId) {
     body.template_id = options.templateId;
   }
   if (options?.plan) {
     body.plan = options.plan;
+  }
+  if (options?.jobId) {
+    body.job_id = options.jobId;
+  }
+  if (options?.bakeins) {
+    body.bakeins = options.bakeins;
   }
   const response = await axios.post<GenerateResponse>(`${backendUrl}/generate`, body, {
     timeout: 300_000,
@@ -95,7 +158,7 @@ export async function postGenerate(
 }
 
 /** Re-export streaming generate for callers that import from api. */
-export { streamGenerate } from './streamGenerate';
+export { streamGenerate, CancelledError, isCancellationError } from './streamGenerate';
 export type {
   StreamProgressEvent,
   StreamGenerateOptions,
@@ -103,6 +166,7 @@ export type {
   StreamFileEvent,
   StreamDoneEvent,
   StreamErrorEvent,
+  StreamCancelledEvent,
 } from './streamGenerate';
 
 export async function createGitHubRepo(

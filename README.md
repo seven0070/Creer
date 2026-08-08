@@ -4,7 +4,7 @@ AI-powered repo scaffolding inside your workspace.
 
 Describe an idea → Creer plans a clean structure → optionally preview/confirm → writes files into your VS Code workspace → optionally initializes git and creates a GitHub remote.
 
-**Current version: 0.3.0**
+**Current version: 0.4.0**
 
 ## Architecture
 
@@ -21,7 +21,7 @@ creer/
 - OpenAI API key **or** a local OpenAI-compatible server (`OPENAI_BASE_URL`), unless using offline template mode (`CREER_OFFLINE=1`)
 - VS Code / Cursor
 
-## Backend (v0.3)
+## Backend (v0.4)
 
 ```bash
 cd backend
@@ -37,99 +37,61 @@ uvicorn main:app --reload --port 8000
 
 | Variable | Description |
 |---|---|
-| `OPENAI_API_KEY` | OpenAI API key (optional if using a local server via `OPENAI_BASE_URL`, or `CREER_OFFLINE=1`) |
-| `OPENAI_BASE_URL` | Optional OpenAI-compatible base URL for local/offline backends (Ollama, LM Studio, vLLM, etc.). Example: `http://127.0.0.1:11434/v1` |
+| `OPENAI_API_KEY` | OpenAI API key (optional if using `OPENAI_BASE_URL` or `CREER_OFFLINE=1`) |
+| `OPENAI_BASE_URL` | OpenAI-compatible base URL (Ollama, LM Studio, etc.). Example: `http://127.0.0.1:11434/v1` |
 | `CREER_MODEL` | Model name (default `gpt-4o-mini`) |
-| `CREER_OFFLINE` | Set to `1`, `true`, or `yes` for template-only / stub generation — never calls the LLM. Offline planning requires a `template_id`. |
+| `CREER_OFFLINE` | `1` / `true` / `yes` for template-only stubs (planning requires `template_id`) |
 
 ### Endpoints
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/health` | Liveness + version (`0.3.0`), offline flag, base URL status |
-| `GET` | `/templates` | List curated starter templates |
-| `POST` | `/plan` | Return a project plan (no file contents) |
-| `POST` | `/generate` | Plan (or accept a plan) and generate file contents |
-| `POST` | `/generate/stream` | Same as `/generate`, streamed as SSE with per-file progress |
-| `POST` | `/github/create-repo` | Create a GitHub repo for the authenticated user |
+| `GET` | `/health` | Version `0.4.0`, offline flag, model |
+| `GET` | `/templates` | Curated starter templates |
+| `GET` | `/bakeins` | License + CI bake-in options |
+| `POST` | `/plan` | Plan only (no file contents) |
+| `POST` | `/generate` | Generate files (+ bake-ins + `quality`) |
+| `POST` | `/generate/stream` | SSE progress; `start` includes `job_id` |
+| `POST` | `/generate/cancel` | Cancel by `job_id` |
+| `POST` | `/quality` | Dry-run quality gates |
+| `POST` | `/github/create-repo` | Create GitHub repo |
 
-#### `POST /plan`
-
-```json
-{ "idea": "Build a FastAPI todo app", "template_id": "fastapi-minimal" }
-```
-
-`template_id` is optional (required when `CREER_OFFLINE=1`). Response includes `project_name`, `stack`, `files`, and optionally `template_id` / `description`.
-
-#### `POST /generate`
+#### Generate body (sync or stream)
 
 ```json
 {
   "idea": "Build a FastAPI todo app",
   "template_id": "fastapi-minimal",
-  "plan": null
+  "plan": null,
+  "job_id": null,
+  "bakeins": {
+    "license": "mit",
+    "ci": "auto",
+    "include_readme": true
+  }
 }
 ```
 
-Omit `plan` to plan then generate, or pass a prior `/plan` body to skip re-planning. Response includes `project_name`, `stack`, and `files` (path → content map).
+`bakeins.license`: `mit` | `apache-2.0` | `none`  
+`bakeins.ci`: `auto` | `python` | `node` | `none`
 
-Every scaffold is merged with **bake-ins** after generation:
+#### Stream events
 
-- `LICENSE` — MIT (always ensured if missing)
-- `README.md` — only if the plan did not already produce one
-- `.github/workflows/ci.yml` — stack-heuristic CI workflow if missing
-
-#### `POST /generate/stream`
-
-Same request body as `/generate`. Response is `text/event-stream` with JSON payloads on `data:` lines:
-
-| Event | Fields | Meaning |
-|---|---|---|
-| `start` | `project_name`, `total`, `stack` | Generation started |
-| `file` | `index`, `total`, `path`, `status` (`generating` \| `done`), optional `bytes` | Per-file progress |
-| `done` | `project_name`, `stack`, `files`, optional `template_id` | Final file map (includes bake-ins) |
-| `error` | `detail` | Failure |
-
-Example:
+| Event | Meaning |
+|---|---|
+| `start` | Includes `job_id`, `total`, `project_name` |
+| `file` | Per-file `generating` / `done` |
+| `done` | Full `files` map + `quality` |
+| `cancelled` | Stopped via `/generate/cancel` |
+| `error` | Failure detail |
 
 ```bash
 curl -N -X POST http://localhost:8000/generate/stream \
   -H "Content-Type: application/json" \
-  -H "Accept: text/event-stream" \
-  -d '{"idea":"Build a FastAPI todo app","template_id":"fastapi-minimal"}'
+  -d '{"idea":"todo api","template_id":"fastapi-minimal"}'
 ```
 
-#### `POST /github/create-repo`
-
-Prefer `Authorization: Bearer <token>`; `body.token` is also accepted.
-
-```json
-{ "name": "my-app", "private": true, "description": "optional" }
-```
-
-Returns `html_url`, `clone_url`, `full_name`.
-
-Health check:
-
-```bash
-curl http://localhost:8000/health
-```
-
-List templates:
-
-```bash
-curl http://localhost:8000/templates
-```
-
-Generate:
-
-```bash
-curl -X POST http://localhost:8000/generate \
-  -H "Content-Type: application/json" \
-  -d '{"idea":"Build a FastAPI todo app"}'
-```
-
-## Extension (v0.3)
+## Extension (v0.4)
 
 ```bash
 cd extension
@@ -137,13 +99,10 @@ npm install
 npm run compile
 ```
 
-In VS Code / Cursor:
-
-1. Open the `extension/` folder
-2. Press **F5** (Run Extension)
-3. In the Extension Development Host, open a workspace folder
-4. Command Palette → **Creer: Create New Repo** (or **Creer: Create from Chat Prompt**)
-5. Enter an idea, pick a template or AI plan, confirm the preview, and write files
+1. Open `extension/` → **F5**
+2. Open a workspace folder
+3. **Creer: Create New Repo**
+4. Pick template → license/CI → confirm preview → generate (cancellable while streaming)
 
 ### Commands
 
@@ -151,31 +110,25 @@ In VS Code / Cursor:
 |---|---|
 | `creer.createRepo` | Creer: Create New Repo |
 | `creer.createRepoFromChat` | Creer: Create from Chat Prompt |
-| `creer.setGitHubToken` | Creer: Set GitHub Token (SecretStorage) |
+| `creer.setGitHubToken` | Creer: Set GitHub Token |
 | `creer.clearGitHubToken` | Creer: Clear GitHub Token |
-
-Chat: `@creer <idea>` (when the host supports chat participants) or run **Create from Chat Prompt** with a `/creer …` style input.
 
 ### Settings
 
 | Setting | Default | Description |
 |---|---|---|
 | `creer.backendUrl` | `http://localhost:8000` | Backend base URL |
-| `creer.initGit` | `true` | Run `git init` + initial commit after scaffolding |
-| `creer.previewBeforeWrite` | `true` | Show plan preview and confirm before generating/writing |
-| `creer.useStreaming` | `true` | Use SSE `/generate/stream` with per-file progress; falls back to `/generate` on failure |
-| `creer.createGitHubRepo` | `false` | After scaffolding, create a GitHub remote repository |
-| `creer.githubPrivate` | `true` | Create GitHub repositories as private |
-| `creer.githubToken` | `""` | **Deprecated.** Prefer SecretStorage via **Creer: Set GitHub Token**. Used only as a fallback when SecretStorage is empty. |
+| `creer.initGit` | `true` | `git init` + initial commit |
+| `creer.previewBeforeWrite` | `true` | Confirm plan before generate |
+| `creer.useStreaming` | `true` | SSE progress (cancellable) |
+| `creer.promptBakeins` | `true` | QuickPick license/CI each run |
+| `creer.license` | `mit` | Used when not prompting |
+| `creer.ciPreset` | `auto` | Used when not prompting |
+| `creer.createGitHubRepo` | `false` | Create GitHub remote after scaffold |
+| `creer.githubPrivate` | `true` | Private GitHub repos |
+| `creer.githubToken` | `""` | **Deprecated** — use SecretStorage |
 
-### GitHub token (SecretStorage)
-
-Tokens are stored in VS Code **SecretStorage**, not in plaintext settings:
-
-1. **Creer: Set GitHub Token** — prompt and store
-2. **Creer: Clear GitHub Token** — remove from SecretStorage
-
-When creating/pushing a GitHub repo, Creer resolves the token as: SecretStorage → deprecated `creer.githubToken` setting → one-time prompt (optionally save). Push uses `GIT_ASKPASS` so the token is never embedded in the remote URL or git argv.
+GitHub push uses `GIT_ASKPASS` (token never on argv/URL).
 
 ## License
 

@@ -1,23 +1,26 @@
-"""Creer FastAPI application — plan, generate, stream, GitHub helpers."""
+"""Creer FastAPI application — plan, generate, stream, cancel, GitHub helpers."""
 
 from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from typing import Any, Literal
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from config import CREER_OFFLINE, MODEL, OPENAI_BASE_URL
-from app.bakeins import apply_bakeins
+from app.bakeins import apply_bakeins, list_bakein_options
 from app.planner import plan_project
 from app.generator import generate_files, generate_files_iter
 from app.validator import validate_plan, validate_files
 from app.templates import list_templates, get_template
 from app.github import create_github_repo
+from app.jobs import cancel_job, create_job, finish_job, is_cancelled
+from app.quality import has_errors, run_quality_gates
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 
 app = FastAPI(title="Creer", version=VERSION)
 
@@ -35,10 +38,28 @@ class PlanBody(BaseModel):
     description: str | None = None
 
 
+class BakeinOptions(BaseModel):
+    license: Literal["mit", "apache-2.0", "none"] = "mit"
+    ci: Literal["auto", "python", "node", "none"] = "auto"
+    include_readme: bool = True
+
+
 class GenerateRequest(BaseModel):
     idea: str = Field(..., min_length=3, max_length=4000)
     template_id: str | None = None
     plan: PlanBody | None = None
+    job_id: str | None = None
+    bakeins: BakeinOptions | None = None
+
+
+class CancelRequest(BaseModel):
+    job_id: str = Field(..., min_length=1)
+
+
+class QualityRequest(BaseModel):
+    plan: PlanBody | None = None
+    files: dict[str, str]
+    bakeins: BakeinOptions | None = None
 
 
 class GitHubCreateRepoRequest(BaseModel):
@@ -65,6 +86,16 @@ def _resolve_plan(request: GenerateRequest) -> dict:
     return plan
 
 
+def _bakein_dict(bakeins: BakeinOptions | None) -> dict[str, Any] | None:
+    return bakeins.model_dump() if bakeins is not None else None
+
+
+def _expect_license(bakeins: BakeinOptions | None) -> bool:
+    if bakeins is None:
+        return True
+    return bakeins.license != "none"
+
+
 def _sse(data: dict) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
@@ -83,6 +114,11 @@ def health():
 @app.get("/templates")
 def templates():
     return {"templates": list_templates()}
+
+
+@app.get("/bakeins")
+def bakeins():
+    return list_bakein_options()
 
 
 @app.post("/plan")
@@ -112,20 +148,35 @@ def plan_only(request: PlanRequest):
 
 @app.post("/generate")
 def generate_project(request: GenerateRequest):
+    job_id = create_job(request.job_id)
     try:
+        if is_cancelled(job_id):
+            raise ValueError("Cancelled by user")
         plan = _resolve_plan(request)
-        files = generate_files(plan)
-        files = apply_bakeins(plan, files)
+        files = generate_files(plan, should_cancel=lambda: is_cancelled(job_id))
+        files = apply_bakeins(plan, files, _bakein_dict(request.bakeins))
         validate_files(files)
+        quality = run_quality_gates(
+            plan, files, expect_license=_expect_license(request.bakeins)
+        )
+        if has_errors(quality):
+            detail = "; ".join(
+                f"{i.get('code')}: {i.get('message')}" for i in quality if i.get("severity") == "error"
+            )
+            raise ValueError(f"Quality gate failed: {detail}")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Generation failed: {exc}") from exc
+    finally:
+        finish_job(job_id)
 
     result = {
         "project_name": plan["project_name"],
         "stack": plan.get("stack"),
         "files": files,
+        "quality": quality,
+        "job_id": job_id,
     }
     if plan.get("template_id"):
         result["template_id"] = plan["template_id"]
@@ -135,15 +186,27 @@ def generate_project(request: GenerateRequest):
 @app.post("/generate/stream")
 def generate_project_stream(request: GenerateRequest):
     """Stream generation progress as Server-Sent Events (JSON data lines)."""
+    job_id = create_job(request.job_id)
 
     def event_stream() -> Iterator[str]:
         plan: dict | None = None
         try:
+            if is_cancelled(job_id):
+                yield _sse(
+                    {
+                        "event": "cancelled",
+                        "job_id": job_id,
+                        "detail": "Cancelled by user",
+                    }
+                )
+                return
+
             plan = _resolve_plan(request)
             file_list = list(plan["files"])
             yield _sse(
                 {
                     "event": "start",
+                    "job_id": job_id,
                     "project_name": plan["project_name"],
                     "total": len(file_list),
                     "stack": plan.get("stack") or "",
@@ -151,18 +214,47 @@ def generate_project_stream(request: GenerateRequest):
             )
 
             files: dict[str, str] = {}
-            for event, partial in generate_files_iter(plan):
+            cancelled = False
+            for event, partial in generate_files_iter(
+                plan, should_cancel=lambda: is_cancelled(job_id)
+            ):
                 files = partial
+                if event.get("event") == "cancelled":
+                    cancelled = True
+                    yield _sse(
+                        {
+                            "event": "cancelled",
+                            "job_id": job_id,
+                            "detail": event.get("detail") or "Cancelled by user",
+                        }
+                    )
+                    break
                 yield _sse(event)
 
-            files = apply_bakeins(plan, files)
+            if cancelled:
+                return
+
+            files = apply_bakeins(plan, files, _bakein_dict(request.bakeins))
             validate_files(files)
+            quality = run_quality_gates(
+                plan, files, expect_license=_expect_license(request.bakeins)
+            )
+            if has_errors(quality):
+                detail = "; ".join(
+                    f"{i.get('code')}: {i.get('message')}"
+                    for i in quality
+                    if i.get("severity") == "error"
+                )
+                yield _sse({"event": "error", "detail": f"Quality gate failed: {detail}", "quality": quality})
+                return
 
             done: dict = {
                 "event": "done",
+                "job_id": job_id,
                 "project_name": plan["project_name"],
                 "files": files,
                 "stack": plan.get("stack") or "",
+                "quality": quality,
             }
             if plan.get("template_id"):
                 done["template_id"] = plan["template_id"]
@@ -171,6 +263,8 @@ def generate_project_stream(request: GenerateRequest):
             yield _sse({"event": "error", "detail": str(exc)})
         except Exception as exc:
             yield _sse({"event": "error", "detail": f"Generation failed: {exc}"})
+        finally:
+            finish_job(job_id)
 
     return StreamingResponse(
         event_stream(),
@@ -181,6 +275,26 @@ def generate_project_stream(request: GenerateRequest):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.post("/generate/cancel")
+def generate_cancel(request: CancelRequest):
+    ok = cancel_job(request.job_id)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Invalid job_id")
+    return {"cancelled": True, "job_id": request.job_id}
+
+
+@app.post("/quality")
+def quality_check(request: QualityRequest):
+    plan = request.plan.model_dump() if request.plan is not None else {"files": list(request.files.keys())}
+    plan.setdefault("files", list(request.files.keys()))
+    quality = run_quality_gates(
+        plan,
+        request.files,
+        expect_license=_expect_license(request.bakeins),
+    )
+    return {"quality": quality, "ok": not has_errors(quality)}
 
 
 @app.post("/github/create-repo")
