@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "praisonai": {
+      "command": "uvx",
+      "args": ["praisonai-mcp"],
+      "env": {
+        "OPENAI_API_KEY": "${OPENAI_API_KEY}"
+      }
+    }
+  }
+}
