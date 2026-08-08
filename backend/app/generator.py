@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 from config import CREER_OFFLINE, MODEL, OPENAI_API_KEY, OPENAI_BASE_URL
@@ -203,13 +203,17 @@ Return ONLY the file content — no markdown fences, no explanation.
     return _strip_fences(content)
 
 
-def generate_files_iter(plan: dict) -> Iterator[tuple[dict[str, Any], dict[str, str]]]:
+def generate_files_iter(
+    plan: dict,
+    should_cancel: Callable[[], bool] | None = None,
+) -> Iterator[tuple[dict[str, Any], dict[str, str]]]:
     """
     Yield (event_dict, partial_files) progress while generating.
 
     Events:
       - file / generating
       - file / done (with bytes)
+      - cancelled (when should_cancel returns True)
     Does not yield start/done/error — caller owns those.
     """
     files_output: dict[str, str] = {}
@@ -218,6 +222,16 @@ def generate_files_iter(plan: dict) -> Iterator[tuple[dict[str, Any], dict[str, 
     offline = _use_offline(plan)
 
     for index, file_path in enumerate(file_list, start=1):
+        if should_cancel and should_cancel():
+            yield (
+                {
+                    "event": "cancelled",
+                    "detail": "Cancelled by user",
+                },
+                dict(files_output),
+            )
+            return
+
         yield (
             {
                 "event": "file",
@@ -228,6 +242,16 @@ def generate_files_iter(plan: dict) -> Iterator[tuple[dict[str, Any], dict[str, 
             },
             dict(files_output),
         )
+
+        if should_cancel and should_cancel():
+            yield (
+                {
+                    "event": "cancelled",
+                    "detail": "Cancelled by user",
+                },
+                dict(files_output),
+            )
+            return
 
         if offline:
             content = _stub_content(file_path, plan)
@@ -248,9 +272,14 @@ def generate_files_iter(plan: dict) -> Iterator[tuple[dict[str, Any], dict[str, 
         )
 
 
-def generate_files(plan: dict) -> dict[str, str]:
+def generate_files(
+    plan: dict,
+    should_cancel: Callable[[], bool] | None = None,
+) -> dict[str, str]:
     """Generate file contents one-by-one from a project plan."""
     files_output: dict[str, str] = {}
-    for _event, partial in generate_files_iter(plan):
+    for event, partial in generate_files_iter(plan, should_cancel=should_cancel):
         files_output = partial
+        if event.get("event") == "cancelled":
+            raise ValueError(event.get("detail") or "Cancelled by user")
     return files_output

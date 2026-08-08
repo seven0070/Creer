@@ -2,7 +2,7 @@
   "name": "creer",
   "displayName": "Creer",
   "description": "AI-powered repo scaffolding inside your workspace",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "creer",
   "engines": {
     "vscode": "^1.85.0"
@@ -79,6 +79,23 @@
           "type": "boolean",
           "default": true,
           "description": "Use SSE streaming (/generate/stream) with per-file progress; falls back to /generate on failure"
+        },
+        "creer.license": {
+          "type": "string",
+          "default": "mit",
+          "enum": ["mit", "apache-2.0", "none"],
+          "description": "License bake-in for generated projects"
+        },
+        "creer.ciPreset": {
+          "type": "string",
+          "default": "auto",
+          "enum": ["auto", "python", "node", "none"],
+          "description": "CI workflow bake-in preset for generated projects"
+        },
+        "creer.promptBakeins": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, QuickPick license and CI each run; when false, use creer.license and creer.ciPreset"
         }
       }
     }
