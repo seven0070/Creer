@@ -22,9 +22,12 @@ uvicorn main:app --reload --port 8000
 ```bash
 cd extension
 npm install
-npm run compile
+npm run compile          # tsc --noEmit + esbuild → dist/extension.js
 # F5 in VS Code to launch the Extension Development Host
+npm run package          # minified bundled .vsix
 ```
+
+Or from repo root: `make extension-install extension-compile check`.
 
 ## Tests
 

@@ -30,7 +30,7 @@ def test_sign_verify_roundtrip(monkeypatch):
     monkeypatch.setattr(trust, "CREER_PEER_TRUST_SECRET", "shared-secret-v12")
     monkeypatch.setattr(trust, "CREER_PEER_TRUST_MODE", "optional")
 
-    payload = {"version": "1.4.0", "items": [{"id": "a"}], "base_url": None}
+    payload = {"version": "1.5.0", "items": [{"id": "a"}], "base_url": None}
     signed = sign_payload(payload)
     assert "trust" in signed
     assert signed["trust"]["alg"] == "HMAC-SHA256"
@@ -48,7 +48,7 @@ def test_tamper_detection(monkeypatch):
     monkeypatch.setattr(trust, "CREER_PEER_TRUST_SECRET", "shared-secret-v12")
     monkeypatch.setattr(trust, "CREER_PEER_TRUST_MODE", "optional")
 
-    signed = sign_payload({"version": "1.4.0", "items": [{"id": "a"}]})
+    signed = sign_payload({"version": "1.5.0", "items": [{"id": "a"}]})
     tampered = dict(signed)
     tampered["items"] = [{"id": "evil"}]
     status, err = verify_payload(tampered)
@@ -75,7 +75,7 @@ def test_required_mode_rejects_unsigned(monkeypatch):
 
         def json(self):
             return {
-                "version": "1.4.0",
+                "version": "1.5.0",
                 "items": [{"id": "remote", "download_url": "/x"}],
             }
 
@@ -115,7 +115,7 @@ def test_optional_accepts_unsigned(monkeypatch):
 
         def json(self):
             return {
-                "version": "1.4.0",
+                "version": "1.5.0",
                 "items": [
                     {
                         "id": "remote-pack",
@@ -158,7 +158,7 @@ def test_optional_rejects_invalid_sig(monkeypatch):
 
         def json(self):
             return {
-                "version": "1.4.0",
+                "version": "1.5.0",
                 "items": [{"id": "remote"}],
                 "trust": {"alg": "HMAC-SHA256", "kid": "default", "sig": "ab" * 32},
             }
@@ -189,7 +189,7 @@ def test_off_skips(monkeypatch):
     monkeypatch.setattr(trust, "CREER_PEER_TRUST_MODE", "off")
     assert trust_mode() == "off"
 
-    unsigned = {"version": "1.4.0", "items": []}
+    unsigned = {"version": "1.5.0", "items": []}
     status, err = verify_payload(unsigned)
     assert status == "skipped"
     assert err is None
@@ -209,7 +209,7 @@ def test_health_shows_mode(monkeypatch):
     # health reads trust_mode/trust_enabled from peer_trust module via imports in main
     c = TestClient(main.app)
     h = c.get("/health").json()
-    assert h["version"] == "1.4.0"
+    assert h["version"] == "1.5.0"
     assert h["peer_trust_mode"] == "optional"
     assert h["peer_trust_signing"] is True
     assert "s3cret" not in str(h)
@@ -234,13 +234,13 @@ def test_discover_and_registry_sign_when_secret(monkeypatch):
     assert err2 is None
 
     registry = c.get("/registry").json()
-    assert registry["version"] == "1.4.0"
+    assert registry["version"] == "1.5.0"
     assert "trust" in registry
     assert verify_payload(registry)[0] == "signed"
 
 
 def test_version_bump():
-    assert VERSION == "1.4.0"
-    assert fed.FEDERATION_VERSION == "1.4.0"
+    assert VERSION == "1.5.0"
+    assert fed.FEDERATION_VERSION == "1.5.0"
     c = TestClient(main.app)
-    assert c.get("/health").json()["version"] == "1.4.0"
+    assert c.get("/health").json()["version"] == "1.5.0"

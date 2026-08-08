@@ -44,7 +44,7 @@ from app.jobs import cancel_job, create_job, finish_job, is_cancelled
 from app.quality import has_errors, run_quality_gates
 from app.doctor import build_health, run_doctor
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 
 app = FastAPI(title="Creer", version=VERSION)
 

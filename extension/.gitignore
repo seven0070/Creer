@@ -3,3 +3,4 @@ out/
 *.vsix
 .vscode-test/
 media/icon-1024.png
+dist/
