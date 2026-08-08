@@ -1,0 +1,17 @@
+{
+  "id": "fastapi-crud",
+  "name": "FastAPI CRUD",
+  "description": "FastAPI starter with models, CRUD routes, and uvicorn entrypoint.",
+  "stack": "FastAPI + Uvicorn",
+  "version": "1.0.0",
+  "files": [
+    "main.py",
+    "requirements.txt",
+    "README.md",
+    "app/__init__.py",
+    "app/models.py",
+    "app/routes.py",
+    ".env.example",
+    ".gitignore"
+  ]
+}
