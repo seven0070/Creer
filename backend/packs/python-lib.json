@@ -1,0 +1,15 @@
+{
+  "id": "python-lib",
+  "name": "Python Library",
+  "description": "Publishable Python library with pyproject, package layout, and tests.",
+  "stack": "Python library",
+  "version": "1.0.0",
+  "files": [
+    "pyproject.toml",
+    "README.md",
+    "src/mylib/__init__.py",
+    "src/mylib/core.py",
+    "tests/test_core.py",
+    ".gitignore"
+  ]
+}
