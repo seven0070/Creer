@@ -1,21 +1,23 @@
 # Creer — Final Plan (post v0.1)
 
-v0.1 delivers the foundation: FastAPI planner/generator + VS Code command that writes a generated repo into the workspace (optional git init).
+v0.1 delivered the foundation: FastAPI planner/generator + VS Code command that writes a generated repo into the workspace (optional git init).
 
-## v0.2 priorities
+## v0.2 — done
 
-1. **Preview before writing** — show planned file tree / diffs and require confirm before disk writes.
-2. **GitHub repo creation** — create remote repo and push the scaffolded project.
-3. **Curated templates** — expand `backend/app/templates.py` into a real template system (stack presets + AI fill).
-4. **Overwrite protection** — stronger conflict detection per-file (not only folder-level).
-5. **Chat command `/creer`** — invoke scaffolding from chat / agent surface.
+1. **Preview before writing** — plan preview markdown + confirm before generate/write (`creer.previewBeforeWrite`).
+2. **GitHub repo creation** — `POST /github/create-repo` + extension remote add/push (`creer.createGitHubRepo`, token settings).
+3. **Curated templates** — `GET /templates` + template-anchored `/plan` & `/generate` (`backend/app/templates.py`).
+4. **Overwrite protection** — per-file conflict detection with overwrite / skip / cancel.
+5. **Chat command `/creer`** — `creer.createRepoFromChat` + `@creer` chat participant (feature-detected).
 
-## Stretch (v0.3+)
+Also in v0.2: modular extension layout (`api` / `scaffold` / `git` / `writeFiles` / `preview`), backend path/content validation, lazy OpenAI clients, extension path sandbox on write.
 
-- Production-grade validation layer (schema, path sandbox, content size limits)
+## v0.3 priorities (next)
+
 - Streaming generation progress to the extension UI
 - Local/offline model backends
 - Open-source README / LICENSE / CI templates baked into every scaffold
+- Hardening: avoid putting GitHub tokens on `git push` argv (credential helper / askpass); SecretStorage instead of plaintext `creer.githubToken` setting
 
 ## Non-goals (keep out of early versions)
 

@@ -2,7 +2,7 @@
   "name": "creer",
   "displayName": "Creer",
   "description": "AI-powered repo scaffolding inside your workspace",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "creer",
   "engines": {
     "vscode": "^1.85.0"
@@ -18,6 +18,19 @@
       {
         "command": "creer.createRepo",
         "title": "Creer: Create New Repo"
+      },
+      {
+        "command": "creer.createRepoFromChat",
+        "title": "Creer: Create from Chat Prompt"
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "creer.participant",
+        "fullName": "Creer",
+        "name": "creer",
+        "description": "Scaffold a repo with Creer",
+        "isSticky": false
       }
     ],
     "configuration": {
@@ -32,6 +45,26 @@
           "type": "boolean",
           "default": true,
           "description": "Initialize a git repo after scaffolding"
+        },
+        "creer.githubToken": {
+          "type": "string",
+          "default": "",
+          "description": "GitHub personal access token for creating/pushing repositories"
+        },
+        "creer.githubPrivate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Create GitHub repositories as private"
+        },
+        "creer.createGitHubRepo": {
+          "type": "boolean",
+          "default": false,
+          "description": "After scaffolding, create a GitHub remote repository"
+        },
+        "creer.previewBeforeWrite": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a plan preview and confirm before generating and writing files"
         }
       }
     }
