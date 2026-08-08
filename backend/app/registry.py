@@ -104,7 +104,7 @@ def list_registry(
 
     return sign_payload(
         {
-            "version": "1.4.0",
+            "version": "1.5.0",
             "base_url": CREER_PUBLIC_BASE_URL or None,
             "items": items,
         }

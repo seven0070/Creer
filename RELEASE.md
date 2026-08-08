@@ -1,39 +1,39 @@
 # Releasing Creer
 
-Exact steps for a human maintainer to cut a tagged release with GitHub Release + optional Marketplace / Open VSX publish.
+Human maintainer steps for a tagged release + optional Marketplace / Open VSX publish.
 
-## 1. Set repository secrets (once)
+## 1. Secrets (once)
 
-In GitHub → **Settings → Secrets and variables → Actions**, add:
+GitHub → **Settings → Secrets and variables → Actions**:
 
 | Secret | Purpose |
 |---|---|
-| `VSCE_PAT` | Azure DevOps PAT with Marketplace **Acquire** + **Publish** |
-| `OVSX_PAT` | Open VSX access token |
+| `VSCE_PAT` | VS Marketplace publish |
+| `OVSX_PAT` | Open VSX publish |
 
-Both optional. Without them the workflow still builds a `.vsix` artifact and (on tags) a GitHub Release.
+Optional — without them, the workflow still builds a `.vsix` and (on tags) a GitHub Release.
 
-**Cloud agents cannot configure these secrets.**
+**Agents cannot set these secrets.**
 
-## 2. Verify locally
-
-```bash
-grep '"version"' extension/package.json   # e.g. 1.4.0
-cd extension && npm ci && npm run compile && npm run package
-# → creer-1.4.0.vsix
-```
-
-## 3. Tag and push
+## 2. Verify
 
 ```bash
-git tag -a v1.4.0 -m "Creer v1.4.0"
-git push origin v1.4.0
+make check
+# with backend up:
+CREER_OFFLINE=1 make backend-run &
+make smoke
+make extension-package   # → creer-1.5.0.vsix
 ```
 
-## 4. Workflow
+Follow [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md).
 
-See `.github/workflows/release.yml` — build → GitHub Release on tags → optional Marketplace/Open VSX when secrets exist.
+## 3. Tag
 
-## 5. After release
+```bash
+git tag -a v1.5.0 -m "Creer v1.5.0"
+git push origin v1.5.0
+```
 
-Confirm the GitHub Release lists the `.vsix`. If secrets were set, confirm Marketplace / Open VSX listings.
+## 4. After
+
+Confirm GitHub Release has the `.vsix`. If secrets are set, confirm Marketplace / Open VSX.

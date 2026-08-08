@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.0
+
+- esbuild-bundled extension (single `dist/extension.js`, much smaller `.vsix`)
+- `Makefile` for common backend/extension/docker/smoke tasks
+- `docs/RELEASE_CHECKLIST.md`
+
 ## 1.4.0
 
 DX polish: diagnostics Doctor, smoke script, contributing guide.

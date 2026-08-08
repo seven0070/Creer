@@ -1,7 +1,9 @@
 .vscode/**
 .vscode-test/**
 src/**
+out/**
 tsconfig.json
+esbuild.mjs
 **/*.ts
 !**/*.d.ts
 **/*.map
@@ -10,8 +12,7 @@ tsconfig.json
 .eslintrc*
 **/.DS_Store
 **/*.vsix
-node_modules/@types/**
-node_modules/typescript/**
+node_modules/**
 *.md
 !README.md
 !CHANGELOG.md

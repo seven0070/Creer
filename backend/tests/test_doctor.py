@@ -27,8 +27,8 @@ def test_doctor_shape_and_version():
     resp = c.get("/doctor")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["version"] == "1.4.0"
-    assert VERSION == "1.4.0"
+    assert body["version"] == "1.5.0"
+    assert VERSION == "1.5.0"
     assert "ok" in body
     assert isinstance(body["ok"], bool)
     assert isinstance(body["checks"], list)
@@ -39,7 +39,7 @@ def test_doctor_shape_and_version():
         assert isinstance(ch["detail"], str)
         assert ch["detail"]  # no empty details
     health = body["health"]
-    assert health["version"] == "1.4.0"
+    assert health["version"] == "1.5.0"
     assert health["status"] == "ok"
     assert "offline" in health
     assert "packs_count" in health
@@ -57,7 +57,7 @@ def test_doctor_llm_ok_when_offline(monkeypatch):
     monkeypatch.setattr(doctor_mod, "CREER_OFFLINE", True)
     monkeypatch.setattr(doctor_mod, "OPENAI_API_KEY", None)
     monkeypatch.setattr(doctor_mod, "OPENAI_BASE_URL", None)
-    report = doctor_mod.run_doctor("1.4.0")
+    report = doctor_mod.run_doctor("1.5.0")
     llm = next(ch for ch in report["checks"] if ch["id"] == "llm")
     assert llm["ok"] is True
     assert "offline" in llm["detail"].lower()
@@ -68,7 +68,7 @@ def test_doctor_llm_ok_when_key_set(monkeypatch):
     monkeypatch.setattr(doctor_mod, "CREER_OFFLINE", False)
     monkeypatch.setattr(doctor_mod, "OPENAI_API_KEY", "sk-test")
     monkeypatch.setattr(doctor_mod, "OPENAI_BASE_URL", None)
-    report = doctor_mod.run_doctor("1.4.0")
+    report = doctor_mod.run_doctor("1.5.0")
     llm = next(ch for ch in report["checks"] if ch["id"] == "llm")
     assert llm["ok"] is True
     assert "OPENAI_API_KEY set" in llm["detail"]
@@ -78,7 +78,7 @@ def test_doctor_llm_ok_when_base_url_set(monkeypatch):
     monkeypatch.setattr(doctor_mod, "CREER_OFFLINE", False)
     monkeypatch.setattr(doctor_mod, "OPENAI_API_KEY", None)
     monkeypatch.setattr(doctor_mod, "OPENAI_BASE_URL", "http://127.0.0.1:11434/v1")
-    report = doctor_mod.run_doctor("1.4.0")
+    report = doctor_mod.run_doctor("1.5.0")
     llm = next(ch for ch in report["checks"] if ch["id"] == "llm")
     assert llm["ok"] is True
     assert "BASE_URL set" in llm["detail"]
@@ -88,7 +88,7 @@ def test_doctor_llm_fail_without_config(monkeypatch):
     monkeypatch.setattr(doctor_mod, "CREER_OFFLINE", False)
     monkeypatch.setattr(doctor_mod, "OPENAI_API_KEY", None)
     monkeypatch.setattr(doctor_mod, "OPENAI_BASE_URL", None)
-    report = doctor_mod.run_doctor("1.4.0")
+    report = doctor_mod.run_doctor("1.5.0")
     llm = next(ch for ch in report["checks"] if ch["id"] == "llm")
     assert llm["ok"] is False
     assert report["ok"] is False
@@ -124,4 +124,4 @@ def test_health_still_matches_doctor_health():
     health = c.get("/health").json()
     doctor = c.get("/doctor").json()
     assert health == doctor["health"]
-    assert health["version"] == "1.4.0"
+    assert health["version"] == "1.5.0"

@@ -50,3 +50,6 @@ jobs:
         run: |
           npm ci
           npm run compile
+          # Ensure vsce package stays lean (bundled dist, no node_modules tree)
+          CREER_MINIFY=1 npm run compile
+          npx --yes @vscode/vsce ls

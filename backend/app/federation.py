@@ -19,7 +19,7 @@ from app.peer_trust import evaluate_peer_trust, sign_payload, trust_mode
 from app.http_client import peer_httpx_client
 from app.registry import list_registry, registry_count
 
-FEDERATION_VERSION = "1.4.0"
+FEDERATION_VERSION = "1.5.0"
 _MAX_PEERS = 8
 _DISCOVER_TIMEOUT = 3.0
 

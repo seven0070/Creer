@@ -276,7 +276,7 @@ def test_federated_with_extra_peers_query(monkeypatch):
     r = c.get("/registry/federated", params={"peers": "http://adhoc.peer:8002/"})
     assert r.status_code == 200
     body = r.json()
-    assert body["version"] == "1.4.0"
+    assert body["version"] == "1.5.0"
     assert any(p["base_url"] == "http://adhoc.peer:8002" for p in body["peers"])
     assert any(i["id"] == "adhoc-pack" for i in body["items"])
 
@@ -292,7 +292,7 @@ def test_list_federated_extra_peers_arg(monkeypatch):
 
     monkeypatch.setattr(fed, "_fetch_peer_registry", fake_fetch)
     result = list_federated(extra_peers=["http://extra.peer/", "http://cfg.peer"])
-    assert result["version"] == "1.4.0"
+    assert result["version"] == "1.5.0"
     assert seen == ["http://cfg.peer", "http://extra.peer"]
 
 
@@ -300,7 +300,7 @@ def test_health_0_9(monkeypatch):
     monkeypatch.setattr(fed, "CREER_REGISTRY_PEERS", "https://a.example,https://b.example")
     c = TestClient(main.app)
     h = c.get("/health").json()
-    assert h["version"] == "1.4.0"
-    assert VERSION == "1.4.0"
+    assert h["version"] == "1.5.0"
+    assert VERSION == "1.5.0"
     assert h["peers_configured"] == 2
     assert h["status"] == "ok"

@@ -48,8 +48,8 @@ def test_health_version_0_9(client, monkeypatch):
     resp = client.get("/health")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["version"] == "1.4.0"
-    assert VERSION == "1.4.0"
+    assert data["version"] == "1.5.0"
+    assert VERSION == "1.5.0"
     assert data["offline"] is True
     assert data["packs_count"] >= 3
     assert "peers_configured" in data
