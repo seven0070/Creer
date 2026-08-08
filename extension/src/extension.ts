@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { registerConflictDiffProvider } from './conflictDiff';
+import { createDoctorStatusBar, runDoctorCommand } from './doctor';
 import {
   browseMarketplaceCommand,
   browseRegistryCommand,
@@ -16,6 +17,7 @@ import {
 
 export function activate(context: vscode.ExtensionContext) {
   registerConflictDiffProvider(context);
+  createDoctorStatusBar(context);
 
   const createRepo = vscode.commands.registerCommand('creer.createRepo', async () => {
     await runScaffoldFlow({ context, fromChat: false });
@@ -105,6 +107,10 @@ export function activate(context: vscode.ExtensionContext) {
     () => manageRegistryPeersCommand(context)
   );
 
+  const doctor = vscode.commands.registerCommand('creer.doctor', () =>
+    runDoctorCommand(context)
+  );
+
   context.subscriptions.push(
     createRepo,
     createRepoFromChat,
@@ -116,7 +122,8 @@ export function activate(context: vscode.ExtensionContext) {
     browseMarketplace,
     browseRegistry,
     browseFederatedRegistry,
-    manageRegistryPeers
+    manageRegistryPeers,
+    doctor
   );
   registerChatParticipant(context);
 }

@@ -2,7 +2,7 @@
 
 AI-powered repo scaffolding inside your workspace.
 
-**Current version: 1.3.0**
+**Current version: 1.4.0**
 
 ## Quick start
 
@@ -28,11 +28,25 @@ cd extension && npm install && npm run compile
 | Scaffold | Plan → preview → stream generate → content/conflict diffs → write |
 | Packs | Templates, JSON/YAML packs, marketplace, registry download |
 | Federation | Peers, discover, hop budget, SSRF policy, HMAC trust, optional mTLS |
-| Ops | Docker Compose, CI/release workflows, `RELEASE.md` |
+| DX | `GET /doctor`, **Creer: Doctor**, status bar, `scripts/smoke.sh` |
+| Ops | Docker Compose, CI/release workflows, `RELEASE.md`, `CONTRIBUTING.md` |
+
+## Doctor + smoke
+
+```bash
+curl -s http://localhost:8000/doctor | python -m json.tool
+./scripts/smoke.sh   # assumes backend on localhost:8000 (or $CREER_URL)
+```
+
+In VS Code: **Creer: Doctor** — writes a report to the `Creer` Output channel.
 
 ## TLS / mTLS
 
 See [`docs/MTLS.md`](docs/MTLS.md). Generate dev certs with `./scripts/gen-dev-certs.sh`, then set `CREER_SSL_*` and use `./scripts/run_backend.sh`.
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Publishing
 

@@ -31,7 +31,7 @@ def test_health_tls_flags():
 
     c = TestClient(main.app)
     h = c.get("/health").json()
-    assert h["version"] == "1.3.0"
+    assert h["version"] == "1.4.0"
     assert "tls_server_configured" in h
     assert "mtls_client_configured" in h
     assert h["tls_server_configured"] is False

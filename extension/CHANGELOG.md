@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.0
+
+DX polish: diagnostics Doctor, smoke script, contributing guide.
+
+- Backend: `GET /doctor` structured checks (health, offline, llm, packs, peers, auth, trust, tls) — no secrets
+- Extension: **Creer: Doctor** (`creer.doctor`) — Output channel `Creer` + Information/Warning summary; falls back to composing from `/health` on 404
+- Status bar: lightweight `/health` probe on activate (`Creer $(check)` / `Creer $(warning)`); click runs Doctor
+- `scripts/smoke.sh` — health/doctor/templates/packs/bakeins + offline-friendly plan (`fastapi-minimal`)
+- Docs: `CONTRIBUTING.md`; PLAN/README/RELEASE updated for 1.4.0
+
 ## 1.3.0
 
 - Optional TLS/mTLS for peer HTTP (`CREER_SSL_*`, `peer_httpx_client`)

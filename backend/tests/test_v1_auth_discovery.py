@@ -202,7 +202,7 @@ def test_discover_endpoint_shape(monkeypatch):
     r = c.get("/registry/discover")
     assert r.status_code == 200
     body = r.json()
-    assert body["version"] == "1.3.0"
+    assert body["version"] == "1.4.0"
     assert body["base_url"] == "http://me.example:8000"
     assert isinstance(body["packs_count"], int)
     assert body["packs_count"] >= 0
@@ -271,7 +271,7 @@ def test_federated_discover_expands_peers(monkeypatch):
     monkeypatch.setattr(fed, "_fetch_peer_registry", fake_fetch)
 
     result = list_federated(discover=True)
-    assert result["version"] == "1.3.0"
+    assert result["version"] == "1.4.0"
     assert result["discovered_peers"] == ["http://hop.example"]
     peer_urls = [p["base_url"] for p in result["peers"]]
     assert peer_urls == ["http://seed.example", "http://hop.example"]
@@ -338,8 +338,8 @@ def test_health_1_0(monkeypatch):
     monkeypatch.setattr(auth_mod, "CREER_REGISTRY_TOKEN", None)
     c = TestClient(main.app)
     h = c.get("/health").json()
-    assert h["version"] == "1.3.0"
-    assert VERSION == "1.3.0"
+    assert h["version"] == "1.4.0"
+    assert VERSION == "1.4.0"
     assert h["peers_configured"] == 1
     assert h["auth_required"] is False
     assert h["status"] == "ok"

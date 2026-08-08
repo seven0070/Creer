@@ -6,6 +6,7 @@
 - **v1.1** — Discovery hardening (SSRF / allow-deny / hop budget)
 - **v1.2** — HMAC signed peer trust
 - **v1.3** — Optional TLS/mTLS transport for peers + Docker Compose multi-peer demo (`docs/MTLS.md`)
+- **v1.4** — DX polish: `GET /doctor`, extension Doctor command + status bar, `scripts/smoke.sh`, `CONTRIBUTING.md`
 
 ## Optional next (human)
 
