@@ -1,33 +1,18 @@
 # Creer — Final Plan
 
-v0.1 delivered the foundation: FastAPI planner/generator + VS Code command that writes a generated repo into the workspace (optional git init).
+## Done
 
-## v0.2 — done
+- **v0.1** — FastAPI planner/generator + VS Code write-to-workspace (+ optional git)
+- **v0.2** — Preview, GitHub create/push, templates, overwrite protection, `/creer` chat
+- **v0.3** — Streaming, offline/local models, bake-ins, SecretStorage + GIT_ASKPASS
+- **v0.4** — Stream cancel, selectable license/CI bake-ins, quality gates
+- **v0.5** — Content diff preview before write, multi-root workspace targeting, installable JSON/YAML template packs (`GET /packs`, `pack_id`)
+- **v0.6** — Pack marketplace UI + install from URL, side-by-side conflict diffs (`creer-generated`), Open VSX / Marketplace publish packaging
 
-1. **Preview before writing** — plan preview markdown + confirm before generate/write (`creer.previewBeforeWrite`).
-2. **GitHub repo creation** — `POST /github/create-repo` + extension remote add/push.
-3. **Curated templates** — `GET /templates` + template-anchored `/plan` & `/generate`.
-4. **Overwrite protection** — per-file conflict detection with overwrite / skip / cancel.
-5. **Chat command `/creer`** — `creer.createRepoFromChat` + `@creer` chat participant.
+## Optional next
 
-## v0.3 — done
-
-1. **Streaming generation** — `POST /generate/stream` (SSE) + extension progress UI.
-2. **Local / offline backends** — `OPENAI_BASE_URL`, `CREER_OFFLINE`.
-3. **Open-source bake-ins** — LICENSE / README / CI via `bakeins.py`.
-4. **Hardening** — `GIT_ASKPASS` + SecretStorage for GitHub tokens.
-
-## v0.4 — done
-
-1. **Cancellation** — `job_id` on stream + `POST /generate/cancel`; extension AbortSignal + cancellable progress.
-2. **Selectable bake-ins** — license (`mit` / `apache-2.0` / `none`) and CI presets (`auto` / `python` / `node` / `none`); `GET /bakeins`.
-3. **Quality gates** — telemetry-free tree checks (`quality` on generate/done; `POST /quality`).
-
-## v0.5 (optional next)
-
-- Diff preview of generated file contents before write
-- Multi-root workspace targeting
-- Template packs as installable JSON/YAML
+- Backend marketplace catalog + remote pack install/delete endpoints (extension already codes to contracts)
+- Extension icon + signed publisher release
 
 ## Non-goals
 

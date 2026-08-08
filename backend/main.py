@@ -16,12 +16,20 @@ from app.planner import plan_project
 from app.generator import generate_files, generate_files_iter
 from app.validator import validate_plan, validate_files
 from app.templates import list_templates, get_template
-from app.packs import list_packs, get_pack
+from app.packs import (
+    PackConflictError,
+    PackNotInstalledError,
+    get_pack,
+    install_pack_from_url,
+    list_packs,
+    marketplace_catalog,
+    uninstall_pack,
+)
 from app.github import create_github_repo
 from app.jobs import cancel_job, create_job, finish_job, is_cancelled
 from app.quality import has_errors, run_quality_gates
 
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 
 app = FastAPI(title="Creer", version=VERSION)
 
@@ -71,6 +79,11 @@ class GitHubCreateRepoRequest(BaseModel):
     private: bool = True
     description: str = ""
     token: str | None = None
+
+
+class PackInstallRequest(BaseModel):
+    url: str = Field(..., min_length=1, max_length=2000)
+    overwrite: bool = False
 
 
 def _check_pack_template_exclusive(
@@ -146,12 +159,46 @@ def packs():
     return {"packs": list_packs()}
 
 
+@app.get("/marketplace")
+def marketplace():
+    """Static curated catalog of bundled + example remote packs."""
+    return {"items": marketplace_catalog()}
+
+
+@app.post("/packs/install")
+def packs_install(request: PackInstallRequest):
+    """Fetch a remote pack URL (http/https), validate, and install locally."""
+    try:
+        pack = install_pack_from_url(request.url, overwrite=request.overwrite)
+    except PackConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Pack install failed: {exc}"
+        ) from exc
+    return {"installed": True, "pack": pack}
+
+
 @app.get("/packs/{pack_id}")
 def pack_detail(pack_id: str):
     pack = get_pack(pack_id)
     if pack is None:
         raise HTTPException(status_code=404, detail=f"Unknown pack_id: {pack_id!r}")
     return pack
+
+
+@app.delete("/packs/{pack_id}")
+def packs_delete(pack_id: str):
+    """Delete a pack from the writable installed dir only (not shipped examples)."""
+    try:
+        uninstall_pack(pack_id)
+    except PackNotInstalledError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"deleted": True, "pack_id": pack_id}
 
 
 @app.get("/bakeins")
