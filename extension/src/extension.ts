@@ -5,6 +5,7 @@ import {
   browseRegistryCommand,
   installPackFromUrlCommand,
 } from './marketplace';
+import { browseFederatedRegistryCommand } from './registry';
 import { runScaffoldFlow } from './scaffold';
 import { clearGitHubToken, setGitHubToken } from './secrets';
 
@@ -58,6 +59,11 @@ export function activate(context: vscode.ExtensionContext) {
     () => browseRegistryCommand()
   );
 
+  const browseFederatedRegistry = vscode.commands.registerCommand(
+    'creer.browseFederatedRegistry',
+    () => browseFederatedRegistryCommand()
+  );
+
   context.subscriptions.push(
     createRepo,
     createRepoFromChat,
@@ -65,7 +71,8 @@ export function activate(context: vscode.ExtensionContext) {
     clearToken,
     installPackFromUrl,
     browseMarketplace,
-    browseRegistry
+    browseRegistry,
+    browseFederatedRegistry
   );
   registerChatParticipant(context);
 }

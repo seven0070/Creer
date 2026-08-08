@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Install, compile, package
+        working-directory: extension
+        run: |
+          npm ci
+          npm run compile
+          npx --yes @vscode/vsce package
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: creer-vsix
+          path: extension/*.vsix
+          if-no-files-found: error
+
+  publish:
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download VSIX artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: creer-vsix
+          path: dist
+
+      - name: Publish (Marketplace / Open VSX when tokens present)
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          set -euo pipefail
+          cd dist
+          shopt -s nullglob
+          vsix=(*.vsix)
+          if [ ${#vsix[@]} -eq 0 ]; then
+            echo "No .vsix artifact found"
+            exit 1
+          fi
+          echo "Packaged: ${vsix[*]}"
+
+          published=false
+          if [ -n "${VSCE_PAT:-}" ]; then
+            echo "Publishing to VS Marketplace…"
+            npx --yes @vscode/vsce publish --packagePath "${vsix[0]}" -p "$VSCE_PAT"
+            published=true
+          fi
+          if [ -n "${OVSX_PAT:-}" ]; then
+            echo "Publishing to Open VSX…"
+            npx --yes ovsx publish "${vsix[0]}" -p "$OVSX_PAT"
+            published=true
+          fi
+          if [ "$published" = false ]; then
+            echo "No publish tokens configured — artifact only"
+          fi

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0
+
+- Federated multi-host registry: `GET /registry/federated`, `CREER_REGISTRY_PEERS`
+- Extension: **Creer: Browse Federated Registry** (search + install via absolute download/install URLs)
+- GitHub Actions release workflow (`.vsix` artifact; optional Marketplace / Open VSX publish when secrets exist)
+- Lightweight CI (backend pytest + extension compile)
+
 ## 0.7.0
 
 - Self-hosted pack registry: `GET /registry`, pack detail + JSON download

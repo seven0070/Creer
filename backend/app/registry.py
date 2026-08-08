@@ -102,7 +102,7 @@ def list_registry(
         items = [i for i in items if matches(i)]
 
     return {
-        "version": "0.7.0",
+        "version": "0.8.0",
         "base_url": CREER_PUBLIC_BASE_URL or None,
         "items": items,
     }

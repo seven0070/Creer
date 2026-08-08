@@ -31,11 +31,12 @@ from app.registry import (
     pack_download_bytes,
     registry_count,
 )
+from app.federation import list_federated, parse_peers
 from app.github import create_github_repo
 from app.jobs import cancel_job, create_job, finish_job, is_cancelled
 from app.quality import has_errors, run_quality_gates
 
-VERSION = "0.7.0"
+VERSION = "0.8.0"
 
 app = FastAPI(title="Creer", version=VERSION)
 
@@ -154,6 +155,7 @@ def health():
         "packs_count": len(list_packs()),
         "registry_count": registry_count(),
         "public_base_url_set": bool(CREER_PUBLIC_BASE_URL),
+        "peers_configured": len(parse_peers()),
     }
 
 
@@ -172,8 +174,17 @@ def registry(
     q: str | None = Query(default=None, description="Search name/description/id/stack"),
     source: str = Query(default="all", description="bundled | installed | all"),
 ):
-    """Self-hosted searchable pack registry."""
+    """Self-hosted searchable pack registry (local only)."""
     return list_registry(q=q, source=source)
+
+
+@app.get("/registry/federated")
+def registry_federated(
+    q: str | None = Query(default=None, description="Search name/description/id/stack"),
+    source: str = Query(default="all", description="bundled | installed | all"),
+):
+    """Federated registry: local packs plus peer Creer registries."""
+    return list_federated(q=q, source=source, include_local=True)
 
 
 @app.get("/registry/packs/{pack_id}")

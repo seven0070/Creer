@@ -19,7 +19,7 @@ npm run package
 # or: npx --yes @vscode/vsce package
 ```
 
-This runs `vsce package`, respects `.vscodeignore`, and includes production dependencies (e.g. `axios`) plus `media/icon.png`. Output: `creer-0.7.0.vsix` (version from `package.json`).
+This runs `vsce package`, respects `.vscodeignore`, and includes production dependencies (e.g. `axios`) plus `media/icon.png`. Output: `creer-0.8.0.vsix` (version from `package.json`).
 
 ### Publisher signing (human step)
 
@@ -31,11 +31,28 @@ vsce/ovsx publish with a PAT **signs the release to your publisher identity**. T
 
 No tokens are stored in this repository.
 
+## GitHub Actions release
+
+Workflow: [`.github/workflows/release.yml`](../.github/workflows/release.yml)
+
+| Trigger | Behavior |
+|---|---|
+| Tag `v*` (e.g. `v0.8.0`) | Build + package `.vsix`, upload artifact |
+| `workflow_dispatch` | Same |
+
+**Publish job** downloads the artifact and:
+
+1. If repository secret `VSCE_PAT` is set → `npx @vscode/vsce publish --packagePath *.vsix -p "$VSCE_PAT"`
+2. If repository secret `OVSX_PAT` is set → `npx ovsx publish *.vsix -p "$OVSX_PAT"`
+3. If neither → logs `No publish tokens configured — artifact only` (signed publish is skipped)
+
+Configure secrets under **Settings → Secrets and variables → Actions** (never commit PATs). CI (`.github/workflows/ci.yml`) runs backend pytest + extension compile on push/PR and does not publish.
+
 Install locally for a smoke test:
 
 ```bash
-code --install-extension creer-0.6.0.vsix
-# or Cursor: cursor --install-extension creer-0.6.0.vsix
+code --install-extension creer-0.8.0.vsix
+# or Cursor: cursor --install-extension creer-0.8.0.vsix
 ```
 
 ## Publish to VS Marketplace
@@ -72,7 +89,7 @@ Optional: `npx @vscode/vsce publish -p "$VSCE_PAT"`.
    cd extension
    npx --yes ovsx publish
    # with an existing vsix:
-   # npx --yes ovsx publish creer-0.6.0.vsix
+   # npx --yes ovsx publish creer-0.8.0.vsix
    ```
 
 `npm run publish:ovsx` only documents this flow (exits non-zero so CI does not publish by accident).

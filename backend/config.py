@@ -11,3 +11,5 @@ CREER_OFFLINE = os.getenv("CREER_OFFLINE", "").lower() in ("1", "true", "yes")
 CREER_PACKS_DIR = os.getenv("CREER_PACKS_DIR", "").strip() or None
 # Optional public base URL for absolute registry download links
 CREER_PUBLIC_BASE_URL = os.getenv("CREER_PUBLIC_BASE_URL", "").strip() or None
+# Comma-separated peer Creer registry base URLs for federation (v0.8)
+CREER_REGISTRY_PEERS = os.getenv("CREER_REGISTRY_PEERS", "").strip() or None
