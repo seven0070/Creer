@@ -1,40 +1,28 @@
-# PLAN.md — Creer v0.2 and beyond
+# Creer — Final Plan (post v0.1)
 
-## v0.1 DONE ✅
-- FastAPI backend: planner, generator, validator, lazy OpenAI client
-- VS Code extension: `creer.createRepo`, writes files, git init
-- Validation, error handling, CORS, health
+v0.1 delivered the foundation: FastAPI planner/generator + VS Code command that writes a generated repo into the workspace (optional git init).
 
-## v0.2 — Preview, Templates, GitHub, Safety, Chat
-**Goal:** ship “preview before write” + guardrails.
+## v0.2 — done
 
-1. **Preview before write**
-   - Extension: tree view / webview showing `project_name` + file list + diff vs existing
-   - Confirm / Cancel, per-file checkboxes
-   - Reuses same `/generate` payload
+1. **Preview before writing** — plan preview markdown + confirm before generate/write (`creer.previewBeforeWrite`).
+2. **GitHub repo creation** — `POST /github/create-repo` + extension remote add/push (`creer.createGitHubRepo`, token settings).
+3. **Curated templates** — `GET /templates` + template-anchored `/plan` & `/generate` (`backend/app/templates.py`).
+4. **Overwrite protection** — per-file conflict detection with overwrite / skip / cancel.
+5. **Chat command `/creer`** — `creer.createRepoFromChat` + `@creer` chat participant (feature-detected).
 
-2. **Curated templates (`backend/app/templates.py`)**
-   - `fastapi-crud`, `nextjs-starter`, `python-cli`, `express-ts`
-   - `GET /templates` + `POST /generate` with `template` field (optional)
-   - If template hit → seed plan instead of pure LLM (deterministic start)
+Also in v0.2: modular extension layout (`api` / `scaffold` / `git` / `writeFiles` / `preview`), backend path/content validation, lazy OpenAI clients, extension path sandbox on write.
 
-3. **Overwrite protection v2**
-   - Content diff, `conflict` handling
-   - Show unified diff for existing files
-   - Options: overwrite / skip / rename
+## v0.3 priorities (next)
 
-4. **GitHub auto-push**
-   - `backend/app/github.py` — create repo via GitHub API + push
-   - Extension: GitHub PAT input (secretStorage), `creer.githubToken` setting
-   - Checkbox “Create GitHub repo”
+- Streaming generation progress to the extension UI
+- Local/offline model backends
+- Open-source README / LICENSE / CI templates baked into every scaffold
+- Hardening: avoid putting GitHub tokens on `git push` argv (credential helper / askpass); SecretStorage instead of plaintext `creer.githubToken` setting
 
-5. **Chat command `/creer`**
-   - Contribute `vscode.chat` participant (if available) or inline chat fallback
-   - Same backend, streaming response stub
+## Non-goals (keep out of early versions)
 
-6. **Quality**
-   - `backend/tests/` (planner mock, validator unit)
-   - `make check`, `make run`
+- Multi-agent orchestration
+- Memory graphs
+- Overengineered plugin frameworks
 
-## v0.3+ — Streaming, Offline, Bake-ins, Hardening
-- Streaming generation (SSE), cancel, selectable bake-ins (eslint, prettier, docker), quality gates.
+Stay power-focused: idea → plan → files → workspace.

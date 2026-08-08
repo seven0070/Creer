@@ -1,85 +1,123 @@
+"""Project planner — AI-driven or template-based."""
+
+from __future__ import annotations
+
 import json
 import re
-from config import OPENAI_API_KEY, MODEL
-from app.validator import validate_plan
 
-_client = None
+from openai import OpenAI
 
-def _get_client():
+from config import MODEL, OPENAI_API_KEY
+from app.templates import apply_template, get_template, slugify
+
+_client: OpenAI | None = None
+
+
+def _get_client() -> OpenAI:
     global _client
-    if _client is not None:
-        return _client
-    if not OPENAI_API_KEY:
-        raise ValueError("OPENAI_API_KEY not set. Set it in backend/.env or env var.")
-    try:
-        from openai import OpenAI
-    except ImportError as e:
-        raise ImportError("openai package not installed. Run pip install -r requirements.txt") from e
-    _client = OpenAI(api_key=OPENAI_API_KEY)
+    if _client is None:
+        if not OPENAI_API_KEY:
+            raise ValueError("OPENAI_API_KEY is not set")
+        _client = OpenAI(api_key=OPENAI_API_KEY)
     return _client
 
 
-def _extract_json(content: str) -> str:
-    """Strip markdown fences and extract JSON object."""
-    content = content.strip()
-    # Remove ```json ... ``` or ``` ... ```
-    if content.startswith("```"):
-        content = re.sub(r"^```(?:json)?\s*", "", content)
-        content = re.sub(r"\s*```$", "", content)
-        content = content.strip()
-    # If still contains extra text, try to find first { and last }
-    if not content.startswith("{"):
-        m = re.search(r"\{.*\}", content, re.DOTALL)
-        if m:
-            content = m.group(0)
-    return content
+def _parse_json(content: str) -> dict:
+    """Parse model JSON, tolerating optional markdown fences."""
+    text = content.strip()
+    fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
+    if fence:
+        text = fence.group(1).strip()
+    return json.loads(text)
 
 
-def plan_project(idea: str) -> dict:
-    """
-    Convert idea into project plan via OpenAI.
-    Returns dict with keys: project_name, stack, files
-    """
-    if not idea or not idea.strip():
-        raise ValueError("Idea cannot be empty")
-
-    client = _get_client()
-
+def _ai_plan(idea: str) -> dict:
     prompt = f"""
 You are a senior software architect.
 
 Convert the following idea into a clean project structure.
 
-Return ONLY valid JSON (no markdown, no explanation) with this shape:
+Return ONLY valid JSON (no markdown):
 {{
-  "project_name": "kebab-case-or-snake_case short name (no spaces)",
-  "stack": "e.g. fastapi, nextjs, express-ts, python-cli",
-  "files": ["path/to/file.py", "path/to/file2.md", ...]
+    "project_name": "...",
+    "stack": "...",
+    "files": ["path/file.py", ...]
 }}
 
 Rules:
-- project_name must be filesystem-safe (lowercase, hyphens/underscores, no spaces)
-- stack should be the primary tech choice for the idea
-- files: 5-20 files, include README.md, .gitignore, and core source files
-- Use conventional paths (e.g. app/main.py, src/index.ts, requirements.txt)
-- No absolute paths, no .. , no hidden files except .gitignore/.env.example
+- project_name must be a valid folder name (lowercase, hyphens ok, no spaces)
+- files should be a focused, production-ready starter set (typically 5–15 files, max 40)
+- include README.md and a dependency manifest appropriate for the stack
 
-Idea: {idea.strip()}
+Idea: {idea}
 """
 
-    response = client.chat.completions.create(
+    response = _get_client().chat.completions.create(
         model=MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.2,
+        response_format={"type": "json_object"},
     )
-    raw = response.choices[0].message.content
-    if not raw:
-        raise ValueError("Empty response from LLM")
-    json_str = _extract_json(raw)
-    try:
-        plan = json.loads(json_str)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"LLM did not return valid JSON: {e}\nRaw: {raw[:500]}") from e
 
-    # Validate and sanitize
-    return validate_plan(plan)
+    plan = _parse_json(response.choices[0].message.content)
+    if not isinstance(plan.get("files"), list) or not plan.get("project_name"):
+        raise ValueError("Planner returned an invalid plan structure")
+    return plan
+
+
+def _ai_name_project(idea: str, template: dict) -> str:
+    """Optionally ask the model for a short project name; fall back to slugify."""
+    try:
+        prompt = f"""
+Given this project idea and stack, return ONLY valid JSON:
+{{"project_name": "short-kebab-case-name"}}
+
+Rules:
+- lowercase, hyphens ok, no spaces
+- 2–40 characters preferred
+- must be a valid folder name
+
+Idea: {idea}
+Stack: {template.get("stack", "")}
+Template: {template.get("name", "")}
+"""
+        response = _get_client().chat.completions.create(
+            model=MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            response_format={"type": "json_object"},
+        )
+        data = _parse_json(response.choices[0].message.content)
+        name = data.get("project_name")
+        if isinstance(name, str) and name.strip():
+            return slugify(name)
+    except Exception:
+        pass
+    return slugify(idea)
+
+
+def plan_project(idea: str, template_id: str | None = None) -> dict:
+    """
+    Build a project plan from an idea, optionally anchored to a curated template.
+
+    When template_id is set:
+    - files and stack come from the template
+    - project_name is derived deterministically via slugify (no API key required)
+    - if OPENAI_API_KEY is present, AI may refine project_name only
+
+    Without template_id: full AI planning (requires OPENAI_API_KEY).
+    """
+    if template_id:
+        tmpl = get_template(template_id)
+        if tmpl is None:
+            raise ValueError(f"Unknown template_id: {template_id!r}")
+
+        plan = apply_template(template_id, idea)
+
+        # Optionally refine name with AI when a key is available
+        if OPENAI_API_KEY:
+            plan["project_name"] = _ai_name_project(idea, tmpl)
+
+        return plan
+
+    return _ai_plan(idea)

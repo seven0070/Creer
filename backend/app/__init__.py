@@ -1,1 +1,1 @@
-# creer backend app
+"""Creer backend package."""
