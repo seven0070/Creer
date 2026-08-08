@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.0
+
+Discovery hardening: surface backend peer policy (SSRF / private IP / allow-deny / max hops) cleanly in the extension.
+
+- Settings: `creer.federationMaxHops` (0–2, default 1) passed as `max_hops` on federated browse; `creer.warnPrivatePeers` (default true)
+- Federated fetch types include optional `policy` / peer `blocked` fields; `formatAxiosError` surfaces FastAPI 400 policy `detail`
+- **Manage Registry Peers** — modal warning before adding/probing localhost or private-looking hosts; discover shows policy-blocked suggestions as blocked (skipped on add)
+- **Browse Federated Registry** — brief status when peers are ok / blocked by policy / failed (e.g. “2 peers ok, 1 blocked by policy”)
+- Keeps `creer.federatedDiscover` (`discover=true`) alongside `max_hops`
+
 ## 1.0.0
 
 Stable foundation release: optional registry write auth, one-hop peer discovery, and federated discover browse.

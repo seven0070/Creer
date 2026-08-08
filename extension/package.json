@@ -2,7 +2,7 @@
   "name": "creer",
   "displayName": "Creer",
   "description": "AI-powered repo scaffolding inside your workspace",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "creer",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -164,6 +164,18 @@
           "type": "boolean",
           "default": false,
           "description": "When browsing the federated registry, pass discover=true for one-hop peer expansion"
+        },
+        "creer.federationMaxHops": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Max peer-discovery hops for federated browse (sent as max_hops when the backend supports it). 0 = configured peers only; 1 = one hop; 2 = two hops."
+        },
+        "creer.warnPrivatePeers": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn before adding or probing peers whose host looks like localhost or a private IP"
         },
         "creer.registryToken": {
           "type": "string",

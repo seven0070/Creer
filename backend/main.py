@@ -11,7 +11,14 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from config import CREER_OFFLINE, CREER_PUBLIC_BASE_URL, MODEL, OPENAI_BASE_URL
+from config import (
+    CREER_ALLOW_PRIVATE_PEERS,
+    CREER_FEDERATION_MAX_HOPS,
+    CREER_OFFLINE,
+    CREER_PUBLIC_BASE_URL,
+    MODEL,
+    OPENAI_BASE_URL,
+)
 from app.auth import registry_auth_required, require_registry_write
 from app.bakeins import apply_bakeins, list_bakein_options
 from app.planner import plan_project
@@ -40,11 +47,12 @@ from app.federation import (
     parse_peers,
     probe_peer,
 )
+from app.peer_policy import assert_peer_allowed
 from app.github import create_github_repo
 from app.jobs import cancel_job, create_job, finish_job, is_cancelled
 from app.quality import has_errors, run_quality_gates
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 app = FastAPI(title="Creer", version=VERSION)
 
@@ -169,6 +177,8 @@ def health():
         "public_base_url_set": bool(CREER_PUBLIC_BASE_URL),
         "peers_configured": len(parse_peers()),
         "auth_required": registry_auth_required(),
+        "federation_max_hops": CREER_FEDERATION_MAX_HOPS,
+        "allow_private_peers": CREER_ALLOW_PRIVATE_PEERS,
     }
 
 
@@ -201,7 +211,13 @@ def registry_federated(
     ),
     discover: bool = Query(
         default=False,
-        description="One-hop peer discovery via GET {peer}/registry/discover",
+        description="Multi-hop peer discovery via GET {peer}/registry/discover",
+    ),
+    max_hops: int | None = Query(
+        default=None,
+        ge=0,
+        le=2,
+        description="Hop budget for discover (overrides CREER_FEDERATION_MAX_HOPS for this request)",
     ),
 ):
     """Federated registry: local packs plus peer Creer registries."""
@@ -212,6 +228,7 @@ def registry_federated(
         include_local=True,
         extra_peers=extra,
         discover=discover,
+        max_hops=max_hops,
     )
 
 
@@ -240,6 +257,10 @@ def registry_peers_probe(
             status_code=400,
             detail="url must use http or https with a host",
         )
+    try:
+        assert_peer_allowed(url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return probe_peer(url)
 
 

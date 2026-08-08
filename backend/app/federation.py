@@ -11,9 +11,15 @@ import httpx
 
 from config import CREER_PUBLIC_BASE_URL, CREER_REGISTRY_PEERS
 from app.auth import registry_auth_required
+from app.peer_policy import (
+    assert_peer_allowed,
+    clamped_max_hops,
+    normalize_peer_url,
+    policy_summary,
+)
 from app.registry import list_registry, registry_count
 
-FEDERATION_VERSION = "1.0.0"
+FEDERATION_VERSION = "1.1.0"
 _MAX_PEERS = 8
 _DISCOVER_TIMEOUT = 3.0
 
@@ -31,13 +37,8 @@ def parse_peers(raw: str | None = None) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
     for part in text.split(","):
-        url = part.strip().rstrip("/")
+        url = normalize_peer_url(part)
         if not url:
-            continue
-        parsed = urlparse(url)
-        if parsed.scheme not in ("http", "https"):
-            continue
-        if not parsed.netloc:
             continue
         if url in seen:
             continue
@@ -81,6 +82,7 @@ def discover_self() -> dict[str, Any]:
         "packs_count": registry_count(),
         "peers": parse_peers(),
         "auth_required": registry_auth_required(),
+        "policy": policy_summary(),
     }
 
 
@@ -137,6 +139,11 @@ def _fetch_peer_registry(
     if not base:
         return [], "empty base_url"
 
+    try:
+        assert_peer_allowed(base)
+    except ValueError as exc:
+        return [], str(exc)
+
     params: dict[str, str] = {}
     if q:
         params["q"] = q
@@ -179,6 +186,11 @@ def fetch_peer_discover(
     if not base:
         return None, "empty base_url"
 
+    try:
+        assert_peer_allowed(base)
+    except ValueError as exc:
+        return None, str(exc)
+
     url = f"{base}/registry/discover"
     try:
         with httpx.Client(timeout=timeout, follow_redirects=True) as client:
@@ -193,52 +205,97 @@ def fetch_peer_discover(
     return data, None
 
 
+def expand_peers(
+    seeds: list[str],
+    max_hops: int | None = None,
+    *,
+    timeout: float = _DISCOVER_TIMEOUT,
+) -> tuple[list[str], list[str]]:
+    """
+    Multi-hop gossip-lite discovery with cycle detection.
+
+    max_hops 0 = no expansion (return seeds only; configured peers remain hop0).
+    Cap total peers at _MAX_PEERS. Skips candidates blocked by peer policy.
+    Returns (expanded_peers, discovered_peers_added).
+    """
+    hops = clamped_max_hops(max_hops)
+    if not seeds:
+        return [], []
+
+    # Preserve seed order; cap immediately
+    known: set[str] = set()
+    all_peers: list[str] = []
+    for s in seeds:
+        url = normalize_peer_url(s) or (s.strip().rstrip("/") if s else "")
+        if not url or url in known:
+            continue
+        known.add(url)
+        all_peers.append(url)
+        if len(all_peers) >= _MAX_PEERS:
+            break
+
+    if hops <= 0 or not all_peers:
+        return all_peers, []
+
+    discovered_all: list[str] = []
+    frontier = list(all_peers)
+    fetched: set[str] = set()
+
+    for _ in range(hops):
+        if len(all_peers) >= _MAX_PEERS:
+            break
+        to_query = [p for p in frontier if p not in fetched]
+        if not to_query:
+            break
+
+        by_peer: dict[str, dict[str, Any] | None] = {}
+        workers = min(8, len(to_query))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(fetch_peer_discover, p, timeout=timeout): p for p in to_query
+            }
+            for fut in as_completed(futures):
+                peer = futures[fut]
+                data, err = fut.result()
+                by_peer[peer] = data if err is None else None
+                fetched.add(peer)
+
+        new_frontier: list[str] = []
+        for peer in to_query:
+            data = by_peer.get(peer)
+            if not data:
+                continue
+            advertised = data.get("peers") or []
+            if not isinstance(advertised, list):
+                continue
+            for raw in advertised:
+                if not isinstance(raw, str):
+                    continue
+                for cand in parse_peers(raw):
+                    if cand in known:
+                        continue  # cycle / already have
+                    try:
+                        assert_peer_allowed(cand)
+                    except ValueError:
+                        continue
+                    if len(all_peers) >= _MAX_PEERS:
+                        return all_peers, discovered_all
+                    known.add(cand)
+                    all_peers.append(cand)
+                    discovered_all.append(cand)
+                    new_frontier.append(cand)
+        frontier = new_frontier
+
+    return all_peers, discovered_all
+
+
 def expand_peers_one_hop(
     peers: list[str],
     *,
     timeout: float = _DISCOVER_TIMEOUT,
 ) -> tuple[list[str], list[str]]:
-    """
-    One-hop gossip-lite: for each ok peer, fetch /registry/discover and collect
-    advertised peers not already in the list. Cap total at _MAX_PEERS.
-
-    Returns (expanded_peers, discovered_peers_added_this_hop).
-    """
-    if not peers:
-        return [], []
-
-    known: set[str] = set(peers)
-    discovered: list[str] = []
-    by_peer: dict[str, dict[str, Any] | None] = {}
-
-    workers = min(8, len(peers))
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(fetch_peer_discover, p, timeout=timeout): p for p in peers}
-        for fut in as_completed(futures):
-            peer = futures[fut]
-            data, err = fut.result()
-            by_peer[peer] = data if err is None else None
-
-    # Preserve seed peer order when reading advertised lists
-    for peer in peers:
-        data = by_peer.get(peer)
-        if not data:
-            continue
-        advertised = data.get("peers") or []
-        if not isinstance(advertised, list):
-            continue
-        for raw in advertised:
-            if not isinstance(raw, str):
-                continue
-            for cand in parse_peers(raw):
-                if cand in known:
-                    continue
-                if len(peers) + len(discovered) >= _MAX_PEERS:
-                    return peers + discovered, discovered
-                known.add(cand)
-                discovered.append(cand)
-
-    return peers + discovered, discovered
+    """Backward-compatible one-hop expand (ignores CREER_FEDERATION_MAX_HOPS)."""
+    return expand_peers(peers, max_hops=1, timeout=timeout)
 
 
 def probe_peer(base_url: str, timeout: float = 5.0) -> dict[str, Any]:
@@ -263,6 +320,12 @@ def probe_peer(base_url: str, timeout: float = 5.0) -> dict[str, Any]:
     parsed = urlparse(base)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         result["error"] = "url must use http or https with a host"
+        return result
+
+    try:
+        assert_peer_allowed(base)
+    except ValueError as exc:
+        result["error"] = str(exc)
         return result
 
     started = time.perf_counter()
@@ -354,6 +417,7 @@ def list_federated(
     include_local: bool = True,
     extra_peers: list[str] | None = None,
     discover: bool = False,
+    max_hops: int | None = None,
 ) -> dict[str, Any]:
     """Merge local registry with peer registries (local ids win on collision)."""
     local = list_registry(q=q, source=source or "all") if include_local else {
@@ -365,7 +429,7 @@ def list_federated(
     peers = resolve_peers(extra_peers)
     discovered_peers: list[str] = []
     if discover and peers:
-        peers, discovered_peers = expand_peers_one_hop(peers)
+        peers, discovered_peers = expand_peers(peers, max_hops=max_hops)
 
     peer_meta: list[dict[str, Any]] = []
     peer_items_by_url: dict[str, list[dict[str, Any]]] = {}
@@ -411,10 +475,16 @@ def list_federated(
                 seen_ids.add(pid)
             merged.append(item)
 
+    summary = policy_summary()
+    if max_hops is not None:
+        summary = dict(summary)
+        summary["request_max_hops"] = clamped_max_hops(max_hops)
+
     return {
         "version": FEDERATION_VERSION,
         "local": local,
         "peers": peer_meta,
         "items": merged,
         "discovered_peers": discovered_peers,
+        "policy": summary,
     }

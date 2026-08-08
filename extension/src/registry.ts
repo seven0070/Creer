@@ -4,9 +4,12 @@ import {
   fetchPeerStatus,
   fetchRegistryDiscover,
   formatAxiosError,
+  isPeerPolicyBlockMessage,
   probePeer,
   type FederatedRegistryItem,
+  type FederatedRegistryPeer,
   type PeerStatus,
+  type RegistryDiscoverPeer,
 } from './api';
 import {
   installFromResolvedUrl,
@@ -31,6 +34,10 @@ function peerUrlOf(status: PeerStatus): string {
 
 function formatPeerHealth(status: PeerStatus): string {
   const host = peerHostLabel(peerUrlOf(status)) || peerUrlOf(status) || 'peer';
+  if (status.blocked || isPeerPolicyBlockMessage(status.error) || isPeerPolicyBlockMessage(status.policy)) {
+    const reason = status.error || status.policy || 'policy';
+    return `$(circle-slash) ${host}: blocked (${reason})`;
+  }
   if (status.ok) {
     const latency =
       typeof status.latency_ms === 'number' ? ` ${Math.round(status.latency_ms)}ms` : '';
@@ -38,6 +45,115 @@ function formatPeerHealth(status: PeerStatus): string {
   }
   const err = status.error ? `: ${status.error}` : '';
   return `$(error) ${host}${err}`;
+}
+
+/**
+ * Heuristic: localhost / loopback / RFC1918 / link-local / .local hosts.
+ * Used only for client-side warnPrivatePeers UX (backend enforces real policy).
+ */
+export function looksLikePrivateOrLocalhostHost(urlOrHost: string): boolean {
+  let host = (urlOrHost || '').trim().toLowerCase();
+  if (!host) {
+    return false;
+  }
+  try {
+    if (host.includes('://') || host.includes('/')) {
+      host = new URL(host.includes('://') ? host : `http://${host}`).hostname.toLowerCase();
+    }
+  } catch {
+    // fall through with raw host
+  }
+  // Strip IPv6 brackets
+  if (host.startsWith('[') && host.endsWith(']')) {
+    host = host.slice(1, -1);
+  }
+
+  if (
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '0.0.0.0' ||
+    host === '::1' ||
+    host === '::' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.local')
+  ) {
+    return true;
+  }
+
+  // IPv4 private / loopback / link-local
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) {
+    return true;
+  }
+  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) {
+    return true;
+  }
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) {
+    return true;
+  }
+  if (/^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(host)) {
+    return true;
+  }
+  if (/^169\.254\.\d{1,3}\.\d{1,3}$/.test(host)) {
+    return true;
+  }
+
+  // IPv6 ULA (fc00::/7) / link-local (fe80::/10) — simple prefix check
+  const bare = host.replace(/%.*$/, '');
+  if (/^(fc|fd)[0-9a-f]*:/i.test(bare) || /^fe[89ab][0-9a-f]*:/i.test(bare)) {
+    return true;
+  }
+
+  return false;
+}
+
+async function confirmPrivatePeerIfNeeded(url: string): Promise<boolean> {
+  const warn = vscode.workspace.getConfiguration('creer').get<boolean>('warnPrivatePeers') !== false;
+  if (!warn || !looksLikePrivateOrLocalhostHost(url)) {
+    return true;
+  }
+  const host = peerHostLabel(url) || url;
+  const choice = await vscode.window.showWarningMessage(
+    `Creer: “${host}” looks like localhost or a private IP. ` +
+      'Backend peer policy may block it (SSRF / private IP). Add or probe anyway?',
+    { modal: true },
+    'Continue',
+    'Cancel'
+  );
+  return choice === 'Continue';
+}
+
+function readFederationMaxHops(): number {
+  const raw = vscode.workspace.getConfiguration('creer').get<number>('federationMaxHops');
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+    return 1;
+  }
+  return Math.max(0, Math.min(2, Math.trunc(raw)));
+}
+
+function isFederatedPeerBlocked(peer: FederatedRegistryPeer): boolean {
+  return (
+    peer.blocked === true ||
+    isPeerPolicyBlockMessage(peer.error) ||
+    isPeerPolicyBlockMessage(peer.policy)
+  );
+}
+
+function summarizeFederatedPeerPolicy(peers: FederatedRegistryPeer[]): string | undefined {
+  if (!peers.length) {
+    return undefined;
+  }
+  const blocked = peers.filter(isFederatedPeerBlocked);
+  const ok = peers.filter((p) => p.ok && !isFederatedPeerBlocked(p));
+  const fail = peers.length - ok.length - blocked.length;
+  const parts: string[] = [];
+  parts.push(`${ok.length} peer${ok.length === 1 ? '' : 's'} ok`);
+  if (blocked.length > 0) {
+    parts.push(`${blocked.length} blocked by policy`);
+  }
+  if (fail > 0) {
+    parts.push(`${fail} fail`);
+  }
+  return parts.join(', ');
 }
 
 function parseRegistryPeersSetting(): string[] {
@@ -65,6 +181,7 @@ export async function browseFederatedRegistryCommand(
   const showPeerStatus = config.get<boolean>('showPeerStatus') !== false;
   const registryPeers = config.get<string>('registryPeers') || '';
   const federatedDiscover = config.get<boolean>('federatedDiscover') === true;
+  const maxHops = readFederationMaxHops();
 
   const q = await vscode.window.showInputBox({
     prompt: 'Search federated registry (leave empty for all packs)',
@@ -80,12 +197,20 @@ export async function browseFederatedRegistryCommand(
     try {
       const statusResp = await fetchPeerStatus();
       peerStatuses = statusResp.peers;
-      const ok = peerStatuses.filter((p) => p.ok).length;
-      const fail = peerStatuses.length - ok;
+      const ok = peerStatuses.filter((p) => p.ok && !p.blocked).length;
+      const blocked = peerStatuses.filter((p) => p.blocked).length;
+      const fail = peerStatuses.length - ok - blocked;
       if (peerStatuses.length > 0) {
+        const parts = [`${ok} ok`];
+        if (blocked > 0) {
+          parts.push(`${blocked} blocked by policy`);
+        }
+        if (fail > 0) {
+          parts.push(`${fail} fail`);
+        }
         void vscode.window.showInformationMessage(
-          `Creer peers: ${ok} ok, ${fail} fail` +
-            (peerStatuses.some((p) => typeof p.latency_ms === 'number')
+          `Creer peers: ${parts.join(', ')}` +
+            (peerStatuses.some((p) => p.ok && typeof p.latency_ms === 'number')
               ? ` · ${peerStatuses
                   .filter((p) => p.ok && typeof p.latency_ms === 'number')
                   .map((p) => `${peerHostLabel(peerUrlOf(p))}:${Math.round(p.latency_ms!)}ms`)
@@ -102,12 +227,13 @@ export async function browseFederatedRegistryCommand(
 
   let items: FederatedRegistryItem[];
   let peerCount = 0;
+  let federatedPeers: FederatedRegistryPeer[] = [];
   try {
     const federated = await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
         title: federatedDiscover
-          ? 'Creer: loading federated registry (discover)…'
+          ? `Creer: loading federated registry (discover, max_hops=${maxHops})…`
           : 'Creer: loading federated registry…',
         cancellable: false,
       },
@@ -116,10 +242,19 @@ export async function browseFederatedRegistryCommand(
           q: q.trim() || undefined,
           peers: registryPeers.trim() || undefined,
           discover: federatedDiscover || undefined,
+          maxHops,
         })
     );
     items = federated.items;
-    peerCount = federated.peers?.length ?? 0;
+    federatedPeers = federated.peers ?? [];
+    peerCount = federatedPeers.length;
+    const policySummary = summarizeFederatedPeerPolicy(federatedPeers);
+    const hasPeerErrors = federatedPeers.some(
+      (p) => !p.ok || Boolean(p.error) || isFederatedPeerBlocked(p)
+    );
+    if (policySummary && (federated.policy || hasPeerErrors)) {
+      void vscode.window.showInformationMessage(`Creer federation: ${policySummary}`);
+    }
   } catch (err) {
     const message = formatAxiosError(err, 'Federated registry unavailable');
     void vscode.window.showWarningMessage(
@@ -150,11 +285,13 @@ export async function browseFederatedRegistryCommand(
       picks.push({
         label: formatPeerHealth(status),
         description: peerUrlOf(status),
-        detail: status.ok
-          ? typeof status.count === 'number'
-            ? `${status.count} packs`
-            : 'reachable'
-          : status.error || 'unreachable',
+        detail: status.blocked
+          ? status.error || status.policy || 'blocked by policy'
+          : status.ok
+            ? typeof status.count === 'number'
+              ? `${status.count} packs`
+              : 'reachable'
+            : status.error || 'unreachable',
       });
     }
     picks.push({
@@ -231,13 +368,14 @@ export async function browseFederatedRegistryCommand(
 }
 
 /**
- * Discover one-hop peers via GET /registry/discover, falling back to federated?discover=true.
+ * Discover peers via GET /registry/discover, falling back to federated?discover=true.
+ * Returns structured entries so policy-blocked suggestions can be shown grayed.
  */
-async function discoverPeerUrls(): Promise<string[]> {
+async function discoverPeerDetails(): Promise<RegistryDiscoverPeer[]> {
   try {
     const discovered = await fetchRegistryDiscover();
-    if (discovered.peers.length > 0) {
-      return discovered.peers;
+    if (discovered.peerDetails.length > 0) {
+      return discovered.peerDetails;
     }
   } catch {
     // Soft-fail: try federated discover instead.
@@ -246,14 +384,38 @@ async function discoverPeerUrls(): Promise<string[]> {
   const registryPeers = vscode.workspace
     .getConfiguration('creer')
     .get<string>('registryPeers') || '';
+  const maxHops = readFederationMaxHops();
   const federated = await fetchFederatedRegistry({
     peers: registryPeers.trim() || undefined,
     discover: true,
+    maxHops,
   });
-  const fromPeers = (federated.peers ?? [])
-    .map((p) => (p.base_url || '').trim().replace(/\/$/, ''))
-    .filter(Boolean);
-  return [...new Set(fromPeers)];
+  const fromPeers = (federated.peers ?? []).map((p) => {
+    const url = (p.base_url || '').trim().replace(/\/$/, '');
+    const blocked = isFederatedPeerBlocked(p);
+    return {
+      url,
+      error: p.error ?? null,
+      blocked,
+      policy: p.policy ?? null,
+    } satisfies RegistryDiscoverPeer;
+  }).filter((p) => Boolean(p.url));
+
+  const discoveredExtra = (federated.discovered_peers ?? [])
+    .map((u) => (typeof u === 'string' ? u.trim().replace(/\/$/, '') : ''))
+    .filter(Boolean)
+    .map((url) => ({ url } satisfies RegistryDiscoverPeer));
+
+  const seen = new Set<string>();
+  const out: RegistryDiscoverPeer[] = [];
+  for (const peer of [...fromPeers, ...discoveredExtra]) {
+    if (seen.has(peer.url)) {
+      continue;
+    }
+    seen.add(peer.url);
+    out.push(peer);
+  }
+  return out;
 }
 
 /**
@@ -294,6 +456,9 @@ export async function manageRegistryPeersCommand(
           livePeers
             .map((p) => {
               const host = peerHostLabel(peerUrlOf(p)) || peerUrlOf(p);
+              if (p.blocked) {
+                return `${host} blocked`;
+              }
               return p.ok
                 ? `${host} ok${typeof p.latency_ms === 'number' ? ` ${Math.round(p.latency_ms)}ms` : ''}`
                 : `${host} fail`;
@@ -332,8 +497,8 @@ export async function manageRegistryPeersCommand(
       action: 'probe',
     },
     {
-      label: '$(search) Discover peers (one hop)',
-      description: 'GET /registry/discover or federated?discover=true — offer to add',
+      label: '$(search) Discover peers',
+      description: 'GET /registry/discover or federated?discover=true — offer to add (policy-aware)',
       action: 'discover',
     },
   ];
@@ -363,6 +528,10 @@ export async function manageRegistryPeersCommand(
       return;
     }
 
+    if (!(await confirmPrivatePeerIfNeeded(trimmed))) {
+      return;
+    }
+
     let ok = true;
     let probeError: string | undefined;
     try {
@@ -374,8 +543,14 @@ export async function manageRegistryPeersCommand(
         },
         () => probePeer(trimmed, { token })
       );
-      ok = result.ok;
-      probeError = result.error || undefined;
+      ok = result.ok && !result.blocked;
+      probeError = result.error || result.policy || undefined;
+      if (result.blocked || isPeerPolicyBlockMessage(probeError)) {
+        void vscode.window.showErrorMessage(
+          `Creer: peer blocked by policy${probeError ? ` — ${probeError}` : ''}. Not added.`
+        );
+        return;
+      }
       if (ok) {
         const latency =
           typeof result.latency_ms === 'number'
@@ -388,6 +563,12 @@ export async function manageRegistryPeersCommand(
     } catch (err) {
       // Soft-fail: if probe endpoint missing, still allow adding after confirm.
       const message = formatAxiosError(err, 'Probe failed');
+      if (isPeerPolicyBlockMessage(message)) {
+        void vscode.window.showErrorMessage(
+          `Creer: peer blocked by policy — ${message}. Not added.`
+        );
+        return;
+      }
       const choice = await vscode.window.showWarningMessage(
         `Creer: could not probe peer (${message}). Add anyway?`,
         'Add',
@@ -458,6 +639,24 @@ export async function manageRegistryPeersCommand(
       return;
     }
 
+    // Warn once if any target looks private
+    const privateTargets = targets.filter(looksLikePrivateOrLocalhostHost);
+    if (privateTargets.length > 0) {
+      const warn =
+        vscode.workspace.getConfiguration('creer').get<boolean>('warnPrivatePeers') !== false;
+      if (warn) {
+        const choice = await vscode.window.showWarningMessage(
+          `Creer: ${privateTargets.length} peer(s) look like localhost/private IPs. Probe anyway?`,
+          { modal: true },
+          'Continue',
+          'Cancel'
+        );
+        if (choice !== 'Continue') {
+          return;
+        }
+      }
+    }
+
     const results: string[] = [];
     await vscode.window.withProgress(
       {
@@ -490,15 +689,15 @@ export async function manageRegistryPeersCommand(
   }
 
   if (picked.action === 'discover') {
-    let discovered: string[] = [];
+    let discovered: RegistryDiscoverPeer[] = [];
     try {
       discovered = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: 'Creer: discovering peers (one hop)…',
+          title: 'Creer: discovering peers…',
           cancellable: false,
         },
-        () => discoverPeerUrls()
+        () => discoverPeerDetails()
       );
     } catch (err) {
       const message = formatAxiosError(err, 'Discovery unavailable');
@@ -514,16 +713,39 @@ export async function manageRegistryPeersCommand(
     }
 
     const existing = new Set(parseRegistryPeersSetting());
-    const picks = discovered.map((url) => ({
-      label: url,
-      description: existing.has(url)
-        ? 'already in creer.registryPeers'
-        : peerHostLabel(url),
-      picked: !existing.has(url),
-    }));
+    type DiscoverPick = vscode.QuickPickItem & {
+      peerUrl?: string;
+      blocked?: boolean;
+    };
+
+    const picks: DiscoverPick[] = discovered.map((peer) => {
+      const blocked =
+        peer.blocked === true ||
+        isPeerPolicyBlockMessage(peer.error) ||
+        isPeerPolicyBlockMessage(peer.policy);
+      if (blocked) {
+        return {
+          label: `$(circle-slash) ${peer.url}`,
+          description: 'blocked',
+          detail: peer.error || peer.policy || 'blocked by policy',
+          peerUrl: peer.url,
+          blocked: true,
+        };
+      }
+      return {
+        label: peer.url,
+        description: existing.has(peer.url)
+          ? 'already in creer.registryPeers'
+          : peerHostLabel(peer.url),
+        peerUrl: peer.url,
+        blocked: false,
+        picked: !existing.has(peer.url),
+      };
+    });
 
     const selected = await vscode.window.showQuickPick(picks, {
-      placeHolder: 'Select discovered peers to add to creer.registryPeers',
+      placeHolder:
+        'Select discovered peers to add (blocked suggestions are shown grayed and skipped)',
       ignoreFocusOut: true,
       canPickMany: true,
     });
@@ -533,9 +755,20 @@ export async function manageRegistryPeersCommand(
 
     const next = parseRegistryPeersSetting();
     let added = 0;
+    let skippedBlocked = 0;
     for (const item of selected) {
-      const url = item.label.trim().replace(/\/$/, '');
-      if (url && !next.includes(url)) {
+      if (item.blocked) {
+        skippedBlocked += 1;
+        continue;
+      }
+      const url = (item.peerUrl || item.label).trim().replace(/\/$/, '');
+      if (!url) {
+        continue;
+      }
+      if (!(await confirmPrivatePeerIfNeeded(url))) {
+        continue;
+      }
+      if (!next.includes(url)) {
         next.push(url);
         added += 1;
       }
@@ -543,10 +776,14 @@ export async function manageRegistryPeersCommand(
     if (added > 0) {
       await saveRegistryPeersSetting(next);
     }
+    const suffix =
+      skippedBlocked > 0
+        ? ` Skipped ${skippedBlocked} blocked by policy.`
+        : '';
     void vscode.window.showInformationMessage(
       added > 0
-        ? `Creer: added ${added} discovered peer(s) to creer.registryPeers.`
-        : 'Creer: selected peers were already in creer.registryPeers.'
+        ? `Creer: added ${added} discovered peer(s) to creer.registryPeers.${suffix}`
+        : `Creer: selected peers were already in creer.registryPeers or blocked.${suffix}`
     );
   }
 }

@@ -10,6 +10,7 @@ import main
 from app import auth as auth_mod
 from app import federation as fed
 from app import packs as packs_mod
+from app import peer_policy as policy
 from app.federation import expand_peers_one_hop, list_federated
 from main import VERSION
 
@@ -22,6 +23,13 @@ SAMPLE_PACK = {
     "version": "1.0.0",
     "files": ["README.md"],
 }
+
+
+def _allow_fake_hosts(monkeypatch):
+    monkeypatch.setattr(policy, "CREER_ALLOW_PRIVATE_PEERS", True)
+    monkeypatch.setattr(policy, "CREER_PEER_ALLOWLIST", "")
+    monkeypatch.setattr(policy, "CREER_PEER_DENYLIST", "")
+    monkeypatch.setattr(policy, "is_private_or_unsafe_host", lambda host: False)
 
 
 def test_install_without_token_still_works(tmp_path, monkeypatch):
@@ -194,12 +202,16 @@ def test_discover_endpoint_shape(monkeypatch):
     r = c.get("/registry/discover")
     assert r.status_code == 200
     body = r.json()
-    assert body["version"] == "1.0.0"
+    assert body["version"] == "1.1.0"
     assert body["base_url"] == "http://me.example:8000"
     assert isinstance(body["packs_count"], int)
     assert body["packs_count"] >= 0
     assert body["peers"] == ["http://a.example", "http://b.example"]
     assert body["auth_required"] is True
+    assert "policy" in body
+    assert body["policy"]["max_hops"] in (0, 1, 2)
+    assert "allow_private" in body["policy"]
+    assert "allowlist_active" in body["policy"]
 
 
 def test_discover_auth_required_false(monkeypatch):
@@ -214,7 +226,9 @@ def test_discover_auth_required_false(monkeypatch):
 
 
 def test_federated_discover_expands_peers(monkeypatch):
+    _allow_fake_hosts(monkeypatch)
     monkeypatch.setattr(fed, "CREER_REGISTRY_PEERS", "http://seed.example")
+    monkeypatch.setattr(policy, "CREER_FEDERATION_MAX_HOPS", 1)
 
     def fake_discover(base_url, *, timeout=3.0):
         if base_url == "http://seed.example":
@@ -257,7 +271,7 @@ def test_federated_discover_expands_peers(monkeypatch):
     monkeypatch.setattr(fed, "_fetch_peer_registry", fake_fetch)
 
     result = list_federated(discover=True)
-    assert result["version"] == "1.0.0"
+    assert result["version"] == "1.1.0"
     assert result["discovered_peers"] == ["http://hop.example"]
     peer_urls = [p["base_url"] for p in result["peers"]]
     assert peer_urls == ["http://seed.example", "http://hop.example"]
@@ -284,7 +298,9 @@ def test_federated_discover_false_no_expansion(monkeypatch):
 
 
 def test_federated_discover_query_param(monkeypatch):
+    _allow_fake_hosts(monkeypatch)
     monkeypatch.setattr(fed, "CREER_REGISTRY_PEERS", "http://seed.example")
+    monkeypatch.setattr(policy, "CREER_FEDERATION_MAX_HOPS", 1)
 
     def fake_discover(base_url, *, timeout=3.0):
         return {"peers": ["http://extra.example"]}, None
@@ -301,6 +317,7 @@ def test_federated_discover_query_param(monkeypatch):
 
 
 def test_expand_peers_respects_cap(monkeypatch):
+    _allow_fake_hosts(monkeypatch)
     seeds = [f"http://s{i}.example" for i in range(6)]
 
     def fake_discover(base_url, *, timeout=3.0):
@@ -321,8 +338,10 @@ def test_health_1_0(monkeypatch):
     monkeypatch.setattr(auth_mod, "CREER_REGISTRY_TOKEN", None)
     c = TestClient(main.app)
     h = c.get("/health").json()
-    assert h["version"] == "1.0.0"
-    assert VERSION == "1.0.0"
+    assert h["version"] == "1.1.0"
+    assert VERSION == "1.1.0"
     assert h["peers_configured"] == 1
     assert h["auth_required"] is False
     assert h["status"] == "ok"
+    assert "federation_max_hops" in h
+    assert "allow_private_peers" in h

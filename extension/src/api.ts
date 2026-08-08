@@ -96,12 +96,46 @@ function getBackendUrl(): string {
   return (config.get<string>('backendUrl') || 'http://localhost:8000').replace(/\/$/, '');
 }
 
+function formatDetailValue(detail: unknown): string | undefined {
+  if (typeof detail === 'string' && detail.trim()) {
+    return detail.trim();
+  }
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((entry) => {
+        if (typeof entry === 'string') {
+          return entry.trim();
+        }
+        if (entry && typeof entry === 'object') {
+          const obj = entry as { msg?: string; message?: string; detail?: string };
+          return (obj.msg || obj.message || obj.detail || '').trim();
+        }
+        return '';
+      })
+      .filter(Boolean);
+    if (parts.length > 0) {
+      return parts.join('; ');
+    }
+  }
+  if (detail && typeof detail === 'object') {
+    const obj = detail as { message?: string; error?: string; reason?: string };
+    const nested = obj.message || obj.error || obj.reason;
+    if (typeof nested === 'string' && nested.trim()) {
+      return nested.trim();
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Prefer backend `detail` (including FastAPI 400 policy / validation messages).
+ */
 export function formatAxiosError(err: unknown, fallback: string): string {
   if (axios.isAxiosError(err)) {
-    const ax = err as AxiosError<{ detail?: string }>;
-    const detail = ax.response?.data?.detail;
-    if (typeof detail === 'string' && detail.trim()) {
-      return detail;
+    const ax = err as AxiosError<{ detail?: unknown }>;
+    const fromDetail = formatDetailValue(ax.response?.data?.detail);
+    if (fromDetail) {
+      return fromDetail;
     }
     if (ax.message) {
       return ax.message;
@@ -111,6 +145,16 @@ export function formatAxiosError(err: unknown, fallback: string): string {
     return err.message;
   }
   return fallback;
+}
+
+/** True when an error string indicates peer policy / private / SSRF block. */
+export function isPeerPolicyBlockMessage(error: string | null | undefined): boolean {
+  if (!error?.trim()) {
+    return false;
+  }
+  return /\b(blocked|private|unsafe|ssrf|deny|denied|denylist|allowlist|not allowed|disallowed|policy)\b/i.test(
+    error
+  );
 }
 
 export async function fetchTemplates(): Promise<Template[]> {
@@ -242,6 +286,23 @@ export interface FederatedRegistryPeer {
   ok?: boolean;
   count?: number;
   error?: string | null;
+  /** Explicit policy block flag when the backend sets it. */
+  blocked?: boolean;
+  /** Optional policy reason / code from the backend. */
+  policy?: string | null;
+}
+
+/** Optional peer-policy snapshot returned by federated/discover responses (v1.1+). */
+export interface FederationPolicyInfo {
+  max_hops?: number | null;
+  allow_private?: boolean | null;
+  allowlist_active?: boolean | null;
+  block_private?: boolean | null;
+  allow?: string[] | null;
+  deny?: string[] | null;
+  /** Free-form notes or summary from the backend. */
+  message?: string | null;
+  [key: string]: unknown;
 }
 
 export interface FederatedRegistryResponse {
@@ -256,20 +317,26 @@ export interface FederatedRegistryResponse {
   peers: FederatedRegistryPeer[];
   /** Merged catalog; peer-sourced rows may include `peer`. */
   items: FederatedRegistryItem[];
+  /** Peers added via discover expansion (when present). */
+  discovered_peers?: string[];
+  /** Backend peer policy summary when present (v1.1+). */
+  policy?: FederationPolicyInfo | null;
 }
 
 /**
- * GET /registry/federated?q=&source=&peers=&discover= — local + peer registry merge.
+ * GET /registry/federated?q=&source=&peers=&discover=&max_hops= — local + peer merge.
  * `peers` is a comma-separated list of extra peer base URLs (from settings or callers).
- * When `discover` is true, the backend expands one hop of peer-of-peer URLs.
+ * When `discover` is true, the backend expands peer-of-peer URLs (hop depth via `max_hops`).
  */
 export async function fetchFederatedRegistry(options?: {
   q?: string;
   source?: string;
   /** Extra peer base URLs (comma-separated string or array). */
   peers?: string | string[];
-  /** One-hop peer expansion (discover=true). */
+  /** Peer expansion (discover=true). */
   discover?: boolean;
+  /** Max discovery hops (0–2); sent as `max_hops` when set. */
+  maxHops?: number;
 }): Promise<FederatedRegistryResponse> {
   const backendUrl = getBackendUrl();
   let peersParam: string | undefined;
@@ -278,6 +345,10 @@ export async function fetchFederatedRegistry(options?: {
     peersParam = joined || undefined;
   } else if (typeof options?.peers === 'string' && options.peers.trim()) {
     peersParam = options.peers.trim();
+  }
+  let maxHops: number | undefined;
+  if (typeof options?.maxHops === 'number' && Number.isFinite(options.maxHops)) {
+    maxHops = Math.max(0, Math.min(2, Math.trunc(options.maxHops)));
   }
   const response = await axios.get<FederatedRegistryResponse>(
     `${backendUrl}/registry/federated`,
@@ -288,6 +359,7 @@ export async function fetchFederatedRegistry(options?: {
         source: options?.source || undefined,
         peers: peersParam,
         discover: options?.discover === true ? true : undefined,
+        max_hops: maxHops,
       },
     }
   );
@@ -296,40 +368,79 @@ export async function fetchFederatedRegistry(options?: {
     local: response.data.local ?? { items: [] },
     peers: response.data.peers ?? [],
     items: response.data.items ?? [],
+    discovered_peers: response.data.discovered_peers,
+    policy: response.data.policy ?? null,
   };
 }
 
-export interface RegistryDiscoverResponse {
-  /** Discovered peer base URLs (one hop). */
-  peers: string[];
-  /** Optional notes from the backend. */
-  discovered?: string[];
+/** Discovered peer suggestion (string URL or structured entry with policy error). */
+export interface RegistryDiscoverPeer {
+  url: string;
+  error?: string | null;
+  blocked?: boolean;
+  policy?: string | null;
 }
 
-function normalizePeerUrlList(raw: unknown): string[] {
+export interface RegistryDiscoverResponse {
+  /** Discovered peer base URLs (one hop / policy-filtered). */
+  peers: string[];
+  /** Structured peer entries when the backend returns objects (v1.1+). */
+  peerDetails: RegistryDiscoverPeer[];
+  /** Optional notes from the backend. */
+  discovered?: string[];
+  /** Backend peer policy summary when present (v1.1+). */
+  policy?: FederationPolicyInfo | null;
+}
+
+function normalizeDiscoverPeerEntry(entry: unknown): RegistryDiscoverPeer | undefined {
+  if (typeof entry === 'string') {
+    const url = entry.trim().replace(/\/$/, '');
+    return url ? { url } : undefined;
+  }
+  if (entry && typeof entry === 'object') {
+    const obj = entry as {
+      url?: string;
+      base_url?: string;
+      error?: string | null;
+      blocked?: boolean;
+      policy?: string | null;
+    };
+    const url = (obj.url || obj.base_url || '').trim().replace(/\/$/, '');
+    if (!url) {
+      return undefined;
+    }
+    const error = obj.error ?? null;
+    const blocked =
+      obj.blocked === true || isPeerPolicyBlockMessage(error) || isPeerPolicyBlockMessage(obj.policy);
+    return {
+      url,
+      error,
+      blocked,
+      policy: obj.policy ?? null,
+    };
+  }
+  return undefined;
+}
+
+function normalizeDiscoverPeerList(raw: unknown): RegistryDiscoverPeer[] {
   if (!Array.isArray(raw)) {
     return [];
   }
-  const out: string[] = [];
+  const out: RegistryDiscoverPeer[] = [];
   const seen = new Set<string>();
   for (const entry of raw) {
-    let url = '';
-    if (typeof entry === 'string') {
-      url = entry.trim().replace(/\/$/, '');
-    } else if (entry && typeof entry === 'object') {
-      const obj = entry as { url?: string; base_url?: string };
-      url = (obj.url || obj.base_url || '').trim().replace(/\/$/, '');
+    const peer = normalizeDiscoverPeerEntry(entry);
+    if (!peer || seen.has(peer.url)) {
+      continue;
     }
-    if (url && !seen.has(url)) {
-      seen.add(url);
-      out.push(url);
-    }
+    seen.add(peer.url);
+    out.push(peer);
   }
   return out;
 }
 
 /**
- * GET /registry/discover — one-hop peer discovery from the local backend.
+ * GET /registry/discover — peer discovery from the local backend (policy-aware in v1.1+).
  */
 export async function fetchRegistryDiscover(): Promise<RegistryDiscoverResponse> {
   const backendUrl = getBackendUrl();
@@ -338,11 +449,26 @@ export async function fetchRegistryDiscover(): Promise<RegistryDiscoverResponse>
     { timeout: 60_000 }
   );
   const data = response.data ?? {};
-  const peers = normalizePeerUrlList(data.peers ?? data.discovered ?? data.urls);
-  const discovered = normalizePeerUrlList(data.discovered);
+  const peerDetails = normalizeDiscoverPeerList(
+    data.peers ?? data.discovered ?? data.urls
+  );
+  const discoveredDetails = normalizeDiscoverPeerList(data.discovered);
+  const merged =
+    peerDetails.length > 0
+      ? peerDetails
+      : discoveredDetails;
+  const policy =
+    data.policy && typeof data.policy === 'object'
+      ? (data.policy as FederationPolicyInfo)
+      : null;
   return {
-    peers: peers.length > 0 ? peers : discovered,
-    discovered: discovered.length > 0 ? discovered : undefined,
+    peers: merged.map((p) => p.url),
+    peerDetails: merged,
+    discovered:
+      discoveredDetails.length > 0
+        ? discoveredDetails.map((p) => p.url)
+        : undefined,
+    policy,
   };
 }
 
@@ -356,22 +482,34 @@ export interface PeerStatus {
   latency_ms?: number | null;
   error?: string | null;
   count?: number | null;
+  /** Explicit policy block flag when the backend sets it. */
+  blocked?: boolean;
+  policy?: string | null;
 }
 
 export interface PeerStatusListResponse {
   peers: PeerStatus[];
   /** Backend-configured peer URLs (CREER_REGISTRY_PEERS). */
   configured: string[];
+  /** Backend peer policy summary when present (v1.1+). */
+  policy?: FederationPolicyInfo | null;
 }
 
 function normalizePeerStatus(raw: PeerStatus): PeerStatus {
+  const error = raw.error ?? null;
+  const blocked =
+    raw.blocked === true ||
+    isPeerPolicyBlockMessage(error) ||
+    isPeerPolicyBlockMessage(raw.policy);
   return {
     url: raw.url || raw.base_url || '',
     base_url: raw.base_url || raw.url || '',
-    ok: Boolean(raw.ok),
+    ok: Boolean(raw.ok) && !blocked,
     latency_ms: raw.latency_ms ?? null,
-    error: raw.error ?? null,
+    error,
     count: raw.count ?? null,
+    blocked,
+    policy: raw.policy ?? null,
   };
 }
 
@@ -387,6 +525,7 @@ export async function fetchPeerStatus(): Promise<PeerStatusListResponse> {
   return {
     peers: (response.data.peers ?? []).map(normalizePeerStatus),
     configured: response.data.configured ?? [],
+    policy: response.data.policy ?? null,
   };
 }
 
