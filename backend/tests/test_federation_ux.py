@@ -6,11 +6,21 @@ from fastapi.testclient import TestClient
 
 import main
 from app import federation as fed
+from app import peer_policy as policy
 from app.federation import list_federated, list_peer_status, probe_peer, resolve_peers
 from main import VERSION
 
 
+def _allow_fake_hosts(monkeypatch):
+    """Skip SSRF DNS checks for .example test hosts."""
+    monkeypatch.setattr(policy, "CREER_ALLOW_PRIVATE_PEERS", True)
+    monkeypatch.setattr(policy, "CREER_PEER_ALLOWLIST", "")
+    monkeypatch.setattr(policy, "CREER_PEER_DENYLIST", "")
+    monkeypatch.setattr(policy, "is_private_or_unsafe_host", lambda host: False)
+
+
 def test_probe_peer_ok(monkeypatch):
+    _allow_fake_hosts(monkeypatch)
     calls: list[str] = []
 
     class FakeResp:
@@ -54,6 +64,8 @@ def test_probe_peer_ok(monkeypatch):
 
 
 def test_probe_peer_fail(monkeypatch):
+    _allow_fake_hosts(monkeypatch)
+
     class FakeClient:
         def __init__(self, *a, **k):
             pass
@@ -79,6 +91,7 @@ def test_probe_peer_fail(monkeypatch):
 
 def test_probe_peer_registry_fallback(monkeypatch):
     """When /health fails, /registry still yields ok + count."""
+    _allow_fake_hosts(monkeypatch)
 
     class FakeResp:
         def __init__(self, data):
@@ -222,6 +235,7 @@ def test_registry_peers_probe_validation():
 
 
 def test_registry_peers_probe_ok(monkeypatch):
+    _allow_fake_hosts(monkeypatch)
     monkeypatch.setattr(
         main,
         "probe_peer",
@@ -262,7 +276,7 @@ def test_federated_with_extra_peers_query(monkeypatch):
     r = c.get("/registry/federated", params={"peers": "http://adhoc.peer:8002/"})
     assert r.status_code == 200
     body = r.json()
-    assert body["version"] == "1.0.0"
+    assert body["version"] == "1.1.0"
     assert any(p["base_url"] == "http://adhoc.peer:8002" for p in body["peers"])
     assert any(i["id"] == "adhoc-pack" for i in body["items"])
 
@@ -278,7 +292,7 @@ def test_list_federated_extra_peers_arg(monkeypatch):
 
     monkeypatch.setattr(fed, "_fetch_peer_registry", fake_fetch)
     result = list_federated(extra_peers=["http://extra.peer/", "http://cfg.peer"])
-    assert result["version"] == "1.0.0"
+    assert result["version"] == "1.1.0"
     assert seen == ["http://cfg.peer", "http://extra.peer"]
 
 
@@ -286,7 +300,7 @@ def test_health_0_9(monkeypatch):
     monkeypatch.setattr(fed, "CREER_REGISTRY_PEERS", "https://a.example,https://b.example")
     c = TestClient(main.app)
     h = c.get("/health").json()
-    assert h["version"] == "1.0.0"
-    assert VERSION == "1.0.0"
+    assert h["version"] == "1.1.0"
+    assert VERSION == "1.1.0"
     assert h["peers_configured"] == 2
     assert h["status"] == "ok"

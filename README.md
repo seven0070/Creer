@@ -2,7 +2,7 @@
 
 AI-powered repo scaffolding inside your workspace.
 
-**Current version: 1.0.0** (stable foundation)
+**Current version: 1.1.0** (discovery hardening)
 
 ## Architecture
 
@@ -26,17 +26,17 @@ cd extension && npm install && npm run compile
 # F5 → Creer: Create New Repo
 ```
 
-## Registry & federation (v0.7–v1.0)
+## Registry & federation (v0.7–v1.1)
 
-Self-hosted pack catalog plus optional multi-host federation and write auth:
+Self-hosted pack catalog plus optional multi-host federation, write auth, and peer policy:
 
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/registry?q=&source=` | Searchable pack list |
-| `GET` | `/registry/federated?q=&source=&peers=&discover=` | Local + peer merge; `discover=true` expands one hop |
-| `GET` | `/registry/discover` | One-hop peer discovery |
+| `GET` | `/registry/federated?q=&source=&peers=&discover=&max_hops=` | Local + peer merge; `discover=true` expands peers; `max_hops` caps hop depth (0–2) |
+| `GET` | `/registry/discover` | Peer discovery (policy-filtered in v1.1+) |
 | `GET` | `/registry/peers` | Peer health + configured URLs |
-| `POST` | `/registry/peers/probe` | Probe one peer `{ url }` (auth when configured) |
+| `POST` | `/registry/peers/probe` | Probe one peer `{ url }` (auth when configured; may 400 on policy) |
 | `GET` | `/registry/packs/{id}` | Pack metadata |
 | `GET` | `/registry/packs/{id}/download` | Portable JSON pack (installable URL) |
 | `GET` | `/marketplace` | Curated featured view |
@@ -45,9 +45,20 @@ Self-hosted pack catalog plus optional multi-host federation and write auth:
 
 When the backend sets `CREER_REGISTRY_TOKEN`, mutating routes expect `Authorization: Bearer <token>` and/or `X-Creer-Token`.
 
-Extension settings: `creer.registryPeers`, `creer.showPeerStatus`, `creer.federatedDiscover` (pass `discover=true`), `creer.registryToken` (deprecated plaintext — prefer SecretStorage).
+### Peer policy env vars (v1.1)
 
-Commands: **Browse Federated Registry**, **Manage Registry Peers** (includes Discover peers), **Set / Clear Registry Token**.
+Backend peer/federation policy (SSRF and private-IP hardening). The extension surfaces 400 `detail` strings and per-peer `error` / optional `policy` fields.
+
+| Env | Purpose |
+|---|---|
+| `CREER_FEDERATION_MAX_HOPS` | Default max discovery hops (0–2; default 1). Extension may also send `max_hops` on federated browse when the backend accepts it. |
+| `CREER_PEER_ALLOWLIST` | Comma-separated hostnames/URLs; if non-empty, only these peers may be contacted |
+| `CREER_PEER_DENYLIST` | Comma-separated hostnames/URLs always blocked |
+| `CREER_ALLOW_PRIVATE_PEERS` | When true (`1`/`true`/`yes`), allow loopback/private/link-local peers (default off) |
+
+Extension settings: `creer.registryPeers`, `creer.showPeerStatus`, `creer.federatedDiscover` (`discover=true`), `creer.federationMaxHops` (`max_hops`), `creer.warnPrivatePeers`, `creer.registryToken` (deprecated plaintext — prefer SecretStorage).
+
+Commands: **Browse Federated Registry**, **Manage Registry Peers** (Discover peers; private-host warning; policy-blocked suggestions), **Set / Clear Registry Token**.
 
 Install from another Creer host:
 
@@ -85,7 +96,7 @@ See [`RELEASE.md`](RELEASE.md) and [`extension/PUBLISH.md`](extension/PUBLISH.md
 
 ```bash
 cd extension && npm run compile && npm run package
-# → creer-1.0.0.vsix (includes media/icon.png)
+# → creer-1.1.0.vsix (includes media/icon.png)
 ```
 
 Signed Marketplace / Open VSX publish requires your own `VSCE_PAT` / `OVSX_PAT` (never commit tokens). Agents cannot set GitHub Actions secrets — that remains a human step.
