@@ -2,18 +2,40 @@ import * as vscode from 'vscode';
 import {
   deletePack,
   fetchMarketplace,
+  fetchRegistry,
   formatAxiosError,
   installPack,
   type MarketplaceItem,
+  type RegistryItem,
 } from './api';
+
+function resolveInstallUrl(url: string | undefined): string | undefined {
+  const trimmed = url?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+  // Relative registry paths → absolute against backend
+  const config = vscode.workspace.getConfiguration('creer');
+  const backendUrl = (config.get<string>('backendUrl') || 'http://localhost:8000').replace(
+    /\/$/,
+    ''
+  );
+  if (trimmed.startsWith('/')) {
+    return `${backendUrl}${trimmed}`;
+  }
+  return `${backendUrl}/${trimmed}`;
+}
 
 /**
  * Creer: Install Pack from URL — prompt for URL, POST /packs/install.
  */
 export async function installPackFromUrlCommand(): Promise<void> {
   const url = await vscode.window.showInputBox({
-    prompt: 'Pack URL (JSON/YAML pack definition)',
-    placeHolder: 'https://example.com/packs/fastapi-crud.json',
+    prompt: 'Pack URL (JSON/YAML pack definition or registry download URL)',
+    placeHolder: 'http://localhost:8000/registry/packs/fastapi-crud/download',
     ignoreFocusOut: true,
   });
   const trimmed = url?.trim();
@@ -48,6 +70,43 @@ function isBundledSource(source: string | undefined): boolean {
   return s === 'bundled' || s === 'builtin' || s === 'built-in' || s === 'local';
 }
 
+async function installFromResolvedUrl(
+  label: string,
+  url: string | undefined
+): Promise<void> {
+  const resolved = resolveInstallUrl(url);
+  if (!resolved) {
+    void vscode.window.showInformationMessage(`Creer: “${label}” has no install URL.`);
+    return;
+  }
+
+  const action = await vscode.window.showInformationMessage(
+    `Install pack “${label}”?\n${resolved}`,
+    'Install',
+    'Cancel'
+  );
+  if (action !== 'Install') {
+    return;
+  }
+
+  try {
+    const pack = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Creer: installing ${label}…`,
+        cancellable: false,
+      },
+      () => installPack(resolved)
+    );
+    void vscode.window.showInformationMessage(
+      `Creer: installed pack “${pack.name || pack.id || label}”.`
+    );
+  } catch (err) {
+    const message = formatAxiosError(err, 'Failed to install pack');
+    void vscode.window.showErrorMessage(`Creer: could not install pack — ${message}`);
+  }
+}
+
 /**
  * Creer: Browse Pack Marketplace — GET /marketplace, QuickPick, optional install.
  */
@@ -66,7 +125,7 @@ export async function browseMarketplaceCommand(): Promise<void> {
     const message = formatAxiosError(err, 'Marketplace unavailable');
     void vscode.window.showWarningMessage(
       `Creer: marketplace endpoint not available (${message}). ` +
-        'You can still use “Creer: Install Pack from URL” if the backend supports /packs/install.'
+        'Try “Creer: Browse Pack Registry” or “Install Pack from URL”.'
     );
     return;
   }
@@ -80,7 +139,7 @@ export async function browseMarketplaceCommand(): Promise<void> {
 
   const picks: PickItem[] = items.map((item) => {
     const bundled = isBundledSource(item.source);
-    const hasUrl = Boolean(item.url?.trim());
+    const hasUrl = Boolean(item.url?.trim() || item.download_url?.trim());
     let description = item.source || '';
     if (bundled) {
       description = description ? `${description} · bundled` : 'bundled';
@@ -107,46 +166,91 @@ export async function browseMarketplaceCommand(): Promise<void> {
   }
 
   const item = picked.market;
-  if (isBundledSource(item.source)) {
+  if (isBundledSource(item.source) && !item.url && !item.download_url) {
     void vscode.window.showInformationMessage(
       `Creer: “${item.name || item.id}” is already available (bundled).`
     );
     return;
   }
 
-  const url = item.url?.trim();
-  if (!url) {
-    void vscode.window.showInformationMessage(
-      `Creer: “${item.name || item.id}” has no install URL.`
-    );
-    return;
-  }
-
-  const action = await vscode.window.showInformationMessage(
-    `Install pack “${item.name || item.id}” from marketplace?`,
-    'Install',
-    'Cancel'
+  await installFromResolvedUrl(
+    item.name || item.id,
+    item.url || item.download_url
   );
-  if (action !== 'Install') {
+}
+
+/**
+ * Creer: Browse Pack Registry — searchable self-hosted /registry catalog.
+ */
+export async function browseRegistryCommand(): Promise<void> {
+  const q = await vscode.window.showInputBox({
+    prompt: 'Search registry (leave empty for all packs)',
+    placeHolder: 'fastapi, express, cli…',
+    ignoreFocusOut: true,
+  });
+  if (q === undefined) {
     return;
   }
 
+  let items: RegistryItem[];
   try {
-    const pack = await vscode.window.withProgress(
+    const registry = await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: `Creer: installing ${item.name || item.id}…`,
+        title: 'Creer: loading registry…',
         cancellable: false,
       },
-      () => installPack(url)
+      () => fetchRegistry({ q: q.trim() || undefined })
     );
-    void vscode.window.showInformationMessage(
-      `Creer: installed pack “${pack.name || pack.id || item.name}”.`
-    );
+    items = registry.items;
   } catch (err) {
-    const message = formatAxiosError(err, 'Failed to install pack');
-    void vscode.window.showErrorMessage(`Creer: could not install pack — ${message}`);
+    const message = formatAxiosError(err, 'Registry unavailable');
+    void vscode.window.showWarningMessage(
+      `Creer: registry endpoint not available (${message}).`
+    );
+    return;
   }
+
+  if (items.length === 0) {
+    void vscode.window.showInformationMessage('Creer: no registry packs matched.');
+    return;
+  }
+
+  type PickItem = vscode.QuickPickItem & { reg?: RegistryItem };
+  const picks: PickItem[] = items.map((item) => ({
+    label: item.name || item.id,
+    description: [item.source, item.stack, item.version].filter(Boolean).join(' · '),
+    detail: item.description,
+    reg: item,
+  }));
+
+  const picked = await vscode.window.showQuickPick(picks, {
+    placeHolder: 'Select a registry pack to install (or reinstall)',
+    ignoreFocusOut: true,
+    matchOnDescription: true,
+    matchOnDetail: true,
+  });
+
+  if (!picked?.reg) {
+    return;
+  }
+
+  const item = picked.reg;
+  if (isBundledSource(item.source)) {
+    const choice = await vscode.window.showInformationMessage(
+      `“${item.name || item.id}” is bundled. Install a local copy via registry download anyway?`,
+      'Install copy',
+      'Cancel'
+    );
+    if (choice !== 'Install copy') {
+      return;
+    }
+  }
+
+  await installFromResolvedUrl(
+    item.name || item.id,
+    item.install_url || item.download_url
+  );
 }
 
 /** Optional helper for hosts that expose delete UI later. */
@@ -155,7 +259,7 @@ export async function deletePackCommand(packId?: string): Promise<void> {
   if (!id) {
     id = (
       await vscode.window.showInputBox({
-        prompt: 'Pack id to delete',
+        prompt: 'Pack id to delete (installed packs only)',
         placeHolder: 'fastapi-crud',
         ignoreFocusOut: true,
       })

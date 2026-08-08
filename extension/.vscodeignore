@@ -14,3 +14,5 @@ node_modules/@types/**
 node_modules/typescript/**
 *.md
 !README.md
+!CHANGELOG.md
+media/icon-1024.png

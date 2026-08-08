@@ -6,11 +6,11 @@ import json
 from collections.abc import Iterator
 from typing import Any, Literal
 
-from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from config import CREER_OFFLINE, MODEL, OPENAI_BASE_URL
+from config import CREER_OFFLINE, CREER_PUBLIC_BASE_URL, MODEL, OPENAI_BASE_URL
 from app.bakeins import apply_bakeins, list_bakein_options
 from app.planner import plan_project
 from app.generator import generate_files, generate_files_iter
@@ -22,14 +22,20 @@ from app.packs import (
     get_pack,
     install_pack_from_url,
     list_packs,
-    marketplace_catalog,
     uninstall_pack,
+)
+from app.registry import (
+    featured_marketplace,
+    get_registry_pack,
+    list_registry,
+    pack_download_bytes,
+    registry_count,
 )
 from app.github import create_github_repo
 from app.jobs import cancel_job, create_job, finish_job, is_cancelled
 from app.quality import has_errors, run_quality_gates
 
-VERSION = "0.6.0"
+VERSION = "0.7.0"
 
 app = FastAPI(title="Creer", version=VERSION)
 
@@ -146,6 +152,8 @@ def health():
         "base_url_set": bool(OPENAI_BASE_URL),
         "model": MODEL,
         "packs_count": len(list_packs()),
+        "registry_count": registry_count(),
+        "public_base_url_set": bool(CREER_PUBLIC_BASE_URL),
     }
 
 
@@ -159,10 +167,41 @@ def packs():
     return {"packs": list_packs()}
 
 
+@app.get("/registry")
+def registry(
+    q: str | None = Query(default=None, description="Search name/description/id/stack"),
+    source: str = Query(default="all", description="bundled | installed | all"),
+):
+    """Self-hosted searchable pack registry."""
+    return list_registry(q=q, source=source)
+
+
+@app.get("/registry/packs/{pack_id}")
+def registry_pack_detail(pack_id: str):
+    item = get_registry_pack(pack_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"Unknown pack_id: {pack_id!r}")
+    return item
+
+
+@app.get("/registry/packs/{pack_id}/download")
+def registry_pack_download(pack_id: str):
+    """Download pack as portable JSON (usable as POST /packs/install url)."""
+    result = pack_download_bytes(pack_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Unknown pack_id: {pack_id!r}")
+    data, filename = result
+    return Response(
+        content=data,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.get("/marketplace")
 def marketplace():
-    """Static curated catalog of bundled + example remote packs."""
-    return {"items": marketplace_catalog()}
+    """Curated marketplace view (featured + local download URLs when available)."""
+    return {"items": featured_marketplace()}
 
 
 @app.post("/packs/install")
