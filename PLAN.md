@@ -12,12 +12,18 @@ v0.1 delivered the foundation: FastAPI planner/generator + VS Code command that 
 
 Also in v0.2: modular extension layout (`api` / `scaffold` / `git` / `writeFiles` / `preview`), backend path/content validation, lazy OpenAI clients, extension path sandbox on write.
 
-## v0.3 priorities (next)
+## v0.3 — done
 
-- Streaming generation progress to the extension UI
-- Local/offline model backends
-- Open-source README / LICENSE / CI templates baked into every scaffold
-- Hardening: avoid putting GitHub tokens on `git push` argv (credential helper / askpass); SecretStorage instead of plaintext `creer.githubToken` setting
+1. **Streaming generation** — `POST /generate/stream` (SSE) + extension `creer.useStreaming` with per-file progress and fallback to `/generate`.
+2. **Local / offline backends** — `OPENAI_BASE_URL` for OpenAI-compatible servers; `CREER_OFFLINE` for template/stub-only generation.
+3. **Open-source bake-ins** — every scaffold gets `LICENSE` (MIT), optional default `README.md`, and `.github/workflows/ci.yml` when missing (`backend/app/bakeins.py`).
+4. **Hardening** — `GIT_ASKPASS` for push (no token on argv/URL); GitHub token in SecretStorage (`creer.setGitHubToken` / `creer.clearGitHubToken`) with deprecated settings fallback.
+
+## v0.4 (optional next)
+
+- Cancellation for long streaming generates
+- Richer bake-in / template composition (user-selectable license, CI presets)
+- Light telemetry-free quality gates on generated trees
 
 ## Non-goals (keep out of early versions)
 

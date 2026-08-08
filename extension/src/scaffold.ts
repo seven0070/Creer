@@ -6,11 +6,14 @@ import {
   formatAxiosError,
   postGenerate,
   postPlan,
+  type GenerateResponse,
   type PlanResponse,
   type Template,
 } from './api';
 import { addRemoteAndPush, ensureGitRepo, initGit } from './git';
 import { showPlanPreviewAndConfirm } from './preview';
+import { resolveGitHubToken } from './secrets';
+import { streamGenerate, type StreamProgressEvent } from './streamGenerate';
 import {
   assertSafeProjectName,
   findConflicts,
@@ -19,6 +22,8 @@ import {
 } from './writeFiles';
 
 export interface ScaffoldOptions {
+  /** Extension context (required for SecretStorage). */
+  context: vscode.ExtensionContext;
   /** Pre-filled idea (e.g. from chat). If omitted, prompts the user. */
   idea?: string;
   /** Use chat-style InputBox placeholder (/creer …). */
@@ -83,23 +88,8 @@ async function pickTemplate(templates: Template[]): Promise<string | undefined |
   return picked.templateId;
 }
 
-async function resolveGitHubToken(): Promise<string | undefined> {
-  const config = vscode.workspace.getConfiguration('creer');
-  const configured = (config.get<string>('githubToken') || '').trim();
-  if (configured) {
-    return configured;
-  }
-
-  const token = await vscode.window.showInputBox({
-    prompt: 'GitHub personal access token (repo scope)',
-    placeHolder: 'ghp_…',
-    password: true,
-    ignoreFocusOut: true,
-  });
-  return token?.trim() || undefined;
-}
-
 async function maybeCreateGitHubRemote(
+  context: vscode.ExtensionContext,
   projectPath: string,
   projectName: string,
   idea: string
@@ -122,7 +112,7 @@ async function maybeCreateGitHubRemote(
     return;
   }
 
-  const token = await resolveGitHubToken();
+  const token = await resolveGitHubToken(context);
   if (!token) {
     vscode.window.showWarningMessage('GitHub token required to create a repository. Skipped.');
     return;
@@ -158,10 +148,80 @@ async function maybeCreateGitHubRemote(
   }
 }
 
+function reportStreamProgress(
+  progress: vscode.Progress<{ message?: string; increment?: number }>,
+  ev: StreamProgressEvent
+): void {
+  if (ev.event === 'start') {
+    progress.report({ message: `Starting ${ev.project_name} (${ev.total} files)…` });
+    return;
+  }
+  if (ev.event === 'file') {
+    const status = ev.status === 'done' ? 'done' : 'generating';
+    progress.report({
+      message: `[${ev.index}/${ev.total}] ${ev.path} (${status})`,
+    });
+  }
+}
+
+async function generateWithOptionalStream(
+  idea: string,
+  plan: PlanResponse,
+  templateId: string | undefined,
+  useStreaming: boolean
+): Promise<GenerateResponse> {
+  const genOpts = {
+    templateId: plan.template_id ?? templateId,
+    plan,
+  };
+
+  if (!useStreaming) {
+    return vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'Creer: generating project…',
+        cancellable: false,
+      },
+      () => postGenerate(idea, genOpts)
+    );
+  }
+
+  try {
+    return await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'Creer: generating project…',
+        cancellable: false,
+      },
+      async (progress) =>
+        streamGenerate({
+          idea,
+          templateId: genOpts.templateId,
+          plan: genOpts.plan,
+          onProgress: (ev) => reportStreamProgress(progress, ev),
+        })
+    );
+  } catch (err) {
+    const message = formatAxiosError(err, 'Streaming generate failed');
+    vscode.window.showWarningMessage(
+      `Streaming failed (${message}); falling back to non-streaming generate.`
+    );
+    return vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'Creer: generating project (fallback)…',
+        cancellable: false,
+      },
+      () => postGenerate(idea, genOpts)
+    );
+  }
+}
+
 /**
  * Shared scaffold flow used by createRepo, createRepoFromChat, and the chat participant.
  */
-export async function runScaffoldFlow(options: ScaffoldOptions = {}): Promise<void> {
+export async function runScaffoldFlow(options: ScaffoldOptions): Promise<void> {
+  const { context } = options;
   const fromChat = options.fromChat ?? false;
   const idea = await promptForIdea(fromChat, options.idea);
   if (!idea) {
@@ -177,6 +237,7 @@ export async function runScaffoldFlow(options: ScaffoldOptions = {}): Promise<vo
   const config = vscode.workspace.getConfiguration('creer');
   const shouldInitGit = config.get<boolean>('initGit') ?? true;
   const previewBeforeWrite = config.get<boolean>('previewBeforeWrite') ?? true;
+  const useStreaming = config.get<boolean>('useStreaming') ?? true;
   const rootPath = workspaceFolders[0].uri.fsPath;
 
   try {
@@ -232,18 +293,12 @@ export async function runScaffoldFlow(options: ScaffoldOptions = {}): Promise<vo
       }
     }
 
-    // 4) Generate
-    const generated = await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: 'Creer: generating project…',
-        cancellable: false,
-      },
-      () =>
-        postGenerate(idea, {
-          templateId: plan.template_id ?? templateId,
-          plan,
-        })
+    // 4) Generate (streaming with progress when enabled)
+    const generated = await generateWithOptionalStream(
+      idea,
+      plan,
+      templateId,
+      useStreaming
     );
 
     const projectName = generated.project_name || plan.project_name;
@@ -301,7 +356,7 @@ export async function runScaffoldFlow(options: ScaffoldOptions = {}): Promise<vo
     }
 
     // 8) GitHub remote (optional)
-    await maybeCreateGitHubRemote(projectPath, projectName, idea);
+    await maybeCreateGitHubRemote(context, projectPath, projectName, idea);
 
     const skipNote = skipped > 0 ? ` (${skipped} existing skipped)` : '';
     vscode.window.showInformationMessage(
