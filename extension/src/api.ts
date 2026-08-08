@@ -18,6 +18,15 @@ export interface Pack {
   files: string[];
 }
 
+export interface MarketplaceItem {
+  id: string;
+  name: string;
+  description: string;
+  /** e.g. bundled | remote | url host */
+  source: string;
+  url?: string;
+}
+
 export interface PlanResponse {
   project_name: string;
   stack?: string;
@@ -117,6 +126,47 @@ export async function fetchPacks(): Promise<Pack[]> {
     timeout: 30_000,
   });
   return response.data.packs ?? [];
+}
+
+/**
+ * GET /marketplace → { items: MarketplaceItem[] }
+ * Callers should treat missing/404 endpoints as “unavailable”.
+ */
+export async function fetchMarketplace(): Promise<MarketplaceItem[]> {
+  const backendUrl = getBackendUrl();
+  const response = await axios.get<{ items: MarketplaceItem[] }>(
+    `${backendUrl}/marketplace`,
+    { timeout: 30_000 }
+  );
+  return response.data.items ?? [];
+}
+
+/**
+ * POST /packs/install → { url, overwrite? } → installed pack
+ */
+export async function installPack(
+  url: string,
+  overwrite?: boolean
+): Promise<Pack> {
+  const backendUrl = getBackendUrl();
+  const body: { url: string; overwrite?: boolean } = { url };
+  if (overwrite !== undefined) {
+    body.overwrite = overwrite;
+  }
+  const response = await axios.post<Pack>(`${backendUrl}/packs/install`, body, {
+    timeout: 120_000,
+  });
+  return response.data;
+}
+
+/**
+ * DELETE /packs/{id} → delete installed pack
+ */
+export async function deletePack(id: string): Promise<void> {
+  const backendUrl = getBackendUrl();
+  await axios.delete(`${backendUrl}/packs/${encodeURIComponent(id)}`, {
+    timeout: 30_000,
+  });
 }
 
 export async function fetchBakeins(): Promise<BakeinsResponse> {

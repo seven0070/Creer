@@ -1,8 +1,15 @@
 import * as vscode from 'vscode';
+import { registerConflictDiffProvider } from './conflictDiff';
+import {
+  browseMarketplaceCommand,
+  installPackFromUrlCommand,
+} from './marketplace';
 import { runScaffoldFlow } from './scaffold';
 import { clearGitHubToken, setGitHubToken } from './secrets';
 
 export function activate(context: vscode.ExtensionContext) {
+  registerConflictDiffProvider(context);
+
   const createRepo = vscode.commands.registerCommand('creer.createRepo', async () => {
     await runScaffoldFlow({ context, fromChat: false });
   });
@@ -35,7 +42,24 @@ export function activate(context: vscode.ExtensionContext) {
     void vscode.window.showInformationMessage('Creer: GitHub token cleared from SecretStorage.');
   });
 
-  context.subscriptions.push(createRepo, createRepoFromChat, setToken, clearToken);
+  const installPackFromUrl = vscode.commands.registerCommand(
+    'creer.installPackFromUrl',
+    () => installPackFromUrlCommand()
+  );
+
+  const browseMarketplace = vscode.commands.registerCommand(
+    'creer.browseMarketplace',
+    () => browseMarketplaceCommand()
+  );
+
+  context.subscriptions.push(
+    createRepo,
+    createRepoFromChat,
+    setToken,
+    clearToken,
+    installPackFromUrl,
+    browseMarketplace
+  );
   registerChatParticipant(context);
 }
 

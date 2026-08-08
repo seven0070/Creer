@@ -26,11 +26,11 @@ import {
   streamGenerate,
   type StreamProgressEvent,
 } from './streamGenerate';
+import { resolveConflictsWithDiffs } from './conflictDiff';
 import { pickWorkspaceRoot } from './workspace';
 import {
   assertSafeProjectName,
   findConflicts,
-  resolveConflicts,
   writeProjectFiles,
 } from './writeFiles';
 
@@ -616,9 +616,9 @@ export async function runScaffoldFlow(options: ScaffoldOptions): Promise<void> {
       return;
     }
 
-    // 7) Conflict resolution
+    // 7) Conflict resolution (optional side-by-side diffs)
     const conflicts = findConflicts(projectPath, files);
-    const resolution = await resolveConflicts(conflicts);
+    const resolution = await resolveConflictsWithDiffs(projectPath, files, conflicts);
     if (resolution === 'cancel') {
       return;
     }

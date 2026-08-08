@@ -2,8 +2,17 @@
   "name": "creer",
   "displayName": "Creer",
   "description": "AI-powered repo scaffolding inside your workspace",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "publisher": "creer",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/seven0070/Creer.git"
+  },
+  "homepage": "https://github.com/seven0070/Creer",
+  "bugs": {
+    "url": "https://github.com/seven0070/Creer/issues"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -30,6 +39,14 @@
       {
         "command": "creer.clearGitHubToken",
         "title": "Creer: Clear GitHub Token"
+      },
+      {
+        "command": "creer.installPackFromUrl",
+        "title": "Creer: Install Pack from URL"
+      },
+      {
+        "command": "creer.browseMarketplace",
+        "title": "Creer: Browse Pack Marketplace"
       }
     ],
     "chatParticipants": [
@@ -102,6 +119,11 @@
           "default": true,
           "description": "After generate, before write, show a content preview/diff and confirm"
         },
+        "creer.showConflictDiffs": {
+          "type": "boolean",
+          "default": true,
+          "description": "When conflicts exist, offer Review diffs (side-by-side vscode.diff). When false, only Overwrite all / Skip existing / Cancel"
+        },
         "creer.defaultWorkspaceFolder": {
           "type": "string",
           "default": "",
@@ -114,7 +136,10 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "lint": "tsc --noEmit -p ./"
+    "lint": "tsc --noEmit -p ./",
+    "package": "npx --yes @vscode/vsce package",
+    "publish:ovsx": "echo \"Set OVSX_PAT then run: npx --yes ovsx publish\" && exit 1",
+    "publish:marketplace": "echo \"Set VSCE_PAT then run: npx --yes @vscode/vsce publish\" && exit 1"
   },
   "dependencies": {
     "axios": "^1.7.9"
