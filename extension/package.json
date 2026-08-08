@@ -1,0 +1,152 @@
+{
+  "name": "creer",
+  "displayName": "Creer",
+  "description": "AI-powered repo scaffolding inside your workspace",
+  "version": "0.6.0",
+  "publisher": "creer",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/seven0070/Creer.git"
+  },
+  "homepage": "https://github.com/seven0070/Creer",
+  "bugs": {
+    "url": "https://github.com/seven0070/Creer/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Snippets"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "creer.createRepo",
+        "title": "Creer: Create New Repo"
+      },
+      {
+        "command": "creer.createRepoFromChat",
+        "title": "Creer: Create from Chat Prompt"
+      },
+      {
+        "command": "creer.setGitHubToken",
+        "title": "Creer: Set GitHub Token"
+      },
+      {
+        "command": "creer.clearGitHubToken",
+        "title": "Creer: Clear GitHub Token"
+      },
+      {
+        "command": "creer.installPackFromUrl",
+        "title": "Creer: Install Pack from URL"
+      },
+      {
+        "command": "creer.browseMarketplace",
+        "title": "Creer: Browse Pack Marketplace"
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "creer.participant",
+        "fullName": "Creer",
+        "name": "creer",
+        "description": "Scaffold a repo with Creer",
+        "isSticky": false
+      }
+    ],
+    "configuration": {
+      "title": "Creer",
+      "properties": {
+        "creer.backendUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "Creer backend base URL"
+        },
+        "creer.initGit": {
+          "type": "boolean",
+          "default": true,
+          "description": "Initialize a git repo after scaffolding"
+        },
+        "creer.githubToken": {
+          "type": "string",
+          "default": "",
+          "description": "DEPRECATED: Prefer SecretStorage via 'Creer: Set GitHub Token'. Used only as a fallback when SecretStorage is empty.",
+          "deprecationMessage": "Use 'Creer: Set GitHub Token' (SecretStorage) instead of storing the token in settings."
+        },
+        "creer.githubPrivate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Create GitHub repositories as private"
+        },
+        "creer.createGitHubRepo": {
+          "type": "boolean",
+          "default": false,
+          "description": "After scaffolding, create a GitHub remote repository"
+        },
+        "creer.previewBeforeWrite": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a plan preview and confirm before generating and writing files"
+        },
+        "creer.useStreaming": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use SSE streaming (/generate/stream) with per-file progress; falls back to /generate on failure"
+        },
+        "creer.license": {
+          "type": "string",
+          "default": "mit",
+          "enum": ["mit", "apache-2.0", "none"],
+          "description": "License bake-in for generated projects"
+        },
+        "creer.ciPreset": {
+          "type": "string",
+          "default": "auto",
+          "enum": ["auto", "python", "node", "none"],
+          "description": "CI workflow bake-in preset for generated projects"
+        },
+        "creer.promptBakeins": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, QuickPick license and CI each run; when false, use creer.license and creer.ciPreset"
+        },
+        "creer.contentPreview": {
+          "type": "boolean",
+          "default": true,
+          "description": "After generate, before write, show a content preview/diff and confirm"
+        },
+        "creer.showConflictDiffs": {
+          "type": "boolean",
+          "default": true,
+          "description": "When conflicts exist, offer Review diffs (side-by-side vscode.diff). When false, only Overwrite all / Skip existing / Cancel"
+        },
+        "creer.defaultWorkspaceFolder": {
+          "type": "string",
+          "default": "",
+          "description": "Optional workspace folder name or path hint for multi-root workspaces; empty prompts when multiple folders are open"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "tsc --noEmit -p ./",
+    "package": "npx --yes @vscode/vsce package",
+    "publish:ovsx": "echo \"Set OVSX_PAT then run: npx --yes ovsx publish\" && exit 1",
+    "publish:marketplace": "echo \"Set VSCE_PAT then run: npx --yes @vscode/vsce publish\" && exit 1"
+  },
+  "dependencies": {
+    "axios": "^1.7.9"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.6.3"
+  }
+}
