@@ -1,0 +1,14 @@
+{
+  "name": "praisonai-docs",
+  "version": "1.0.0",
+  "description": "PraisonAI documentation MCP server via GitMCP — search docs, APIs, and examples from the official PraisonAI repository",
+  "author": {
+    "name": "Creer"
+  },
+  "repository": "https://github.com/seven0070/Creer",
+  "homepage": "https://docs.praison.ai",
+  "license": "MIT",
+  "keywords": ["praisonai", "mcp", "docs", "agents", "ai", "workflows"],
+  "mcpServers": "./mcp.json",
+  "skills": "./skills/"
+}
