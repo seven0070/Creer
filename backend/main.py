@@ -16,11 +16,12 @@ from app.planner import plan_project
 from app.generator import generate_files, generate_files_iter
 from app.validator import validate_plan, validate_files
 from app.templates import list_templates, get_template
+from app.packs import list_packs, get_pack
 from app.github import create_github_repo
 from app.jobs import cancel_job, create_job, finish_job, is_cancelled
 from app.quality import has_errors, run_quality_gates
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 app = FastAPI(title="Creer", version=VERSION)
 
@@ -28,6 +29,7 @@ app = FastAPI(title="Creer", version=VERSION)
 class PlanRequest(BaseModel):
     idea: str = Field(..., min_length=3, max_length=4000)
     template_id: str | None = None
+    pack_id: str | None = None
 
 
 class PlanBody(BaseModel):
@@ -35,6 +37,7 @@ class PlanBody(BaseModel):
     stack: str | None = None
     files: list[str]
     template_id: str | None = None
+    pack_id: str | None = None
     description: str | None = None
 
 
@@ -47,6 +50,7 @@ class BakeinOptions(BaseModel):
 class GenerateRequest(BaseModel):
     idea: str = Field(..., min_length=3, max_length=4000)
     template_id: str | None = None
+    pack_id: str | None = None
     plan: PlanBody | None = None
     job_id: str | None = None
     bakeins: BakeinOptions | None = None
@@ -69,18 +73,38 @@ class GitHubCreateRepoRequest(BaseModel):
     token: str | None = None
 
 
+def _check_pack_template_exclusive(
+    pack_id: str | None, template_id: str | None
+) -> None:
+    if pack_id and template_id:
+        raise ValueError("Provide pack_id or template_id, not both")
+
+
 def _resolve_plan(request: GenerateRequest) -> dict:
     """Resolve a validated plan from GenerateRequest (shared by sync + stream)."""
+    _check_pack_template_exclusive(request.pack_id, request.template_id)
+
     if request.plan is not None:
         plan = request.plan.model_dump()
         plan = {k: v for k, v in plan.items() if v is not None}
         plan.setdefault("stack", "")
+        _check_pack_template_exclusive(plan.get("pack_id"), plan.get("template_id"))
+        if request.pack_id and "pack_id" not in plan:
+            plan["pack_id"] = request.pack_id
         if request.template_id and "template_id" not in plan:
             plan["template_id"] = request.template_id
+        # Re-check after merging top-level ids into plan
+        _check_pack_template_exclusive(plan.get("pack_id"), plan.get("template_id"))
     else:
+        if request.pack_id and get_pack(request.pack_id) is None:
+            raise ValueError(f"Unknown pack_id: {request.pack_id!r}")
         if request.template_id and get_template(request.template_id) is None:
             raise ValueError(f"Unknown template_id: {request.template_id!r}")
-        plan = plan_project(request.idea, template_id=request.template_id)
+        plan = plan_project(
+            request.idea,
+            template_id=request.template_id,
+            pack_id=request.pack_id,
+        )
 
     validate_plan(plan)
     return plan
@@ -108,12 +132,26 @@ def health():
         "offline": CREER_OFFLINE,
         "base_url_set": bool(OPENAI_BASE_URL),
         "model": MODEL,
+        "packs_count": len(list_packs()),
     }
 
 
 @app.get("/templates")
 def templates():
     return {"templates": list_templates()}
+
+
+@app.get("/packs")
+def packs():
+    return {"packs": list_packs()}
+
+
+@app.get("/packs/{pack_id}")
+def pack_detail(pack_id: str):
+    pack = get_pack(pack_id)
+    if pack is None:
+        raise HTTPException(status_code=404, detail=f"Unknown pack_id: {pack_id!r}")
+    return pack
 
 
 @app.get("/bakeins")
@@ -125,9 +163,16 @@ def bakeins():
 def plan_only(request: PlanRequest):
     """Return a project plan without generating file contents."""
     try:
+        _check_pack_template_exclusive(request.pack_id, request.template_id)
+        if request.pack_id and get_pack(request.pack_id) is None:
+            raise ValueError(f"Unknown pack_id: {request.pack_id!r}")
         if request.template_id and get_template(request.template_id) is None:
             raise ValueError(f"Unknown template_id: {request.template_id!r}")
-        plan = plan_project(request.idea, template_id=request.template_id)
+        plan = plan_project(
+            request.idea,
+            template_id=request.template_id,
+            pack_id=request.pack_id,
+        )
         validate_plan(plan)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -139,6 +184,8 @@ def plan_only(request: PlanRequest):
         "stack": plan.get("stack"),
         "files": plan["files"],
     }
+    if plan.get("pack_id"):
+        result["pack_id"] = plan["pack_id"]
     if plan.get("template_id"):
         result["template_id"] = plan["template_id"]
     if plan.get("description"):
@@ -178,6 +225,8 @@ def generate_project(request: GenerateRequest):
         "quality": quality,
         "job_id": job_id,
     }
+    if plan.get("pack_id"):
+        result["pack_id"] = plan["pack_id"]
     if plan.get("template_id"):
         result["template_id"] = plan["template_id"]
     return result
@@ -256,6 +305,8 @@ def generate_project_stream(request: GenerateRequest):
                 "stack": plan.get("stack") or "",
                 "quality": quality,
             }
+            if plan.get("pack_id"):
+                done["pack_id"] = plan["pack_id"]
             if plan.get("template_id"):
                 done["template_id"] = plan["template_id"]
             yield _sse(done)

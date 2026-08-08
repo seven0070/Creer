@@ -7,6 +7,7 @@ import re
 
 from config import CREER_OFFLINE, MODEL, OPENAI_API_KEY, OPENAI_BASE_URL
 from app.llm import _get_client
+from app.packs import apply_pack, get_pack
 from app.templates import apply_template, get_template, slugify
 
 
@@ -89,23 +90,45 @@ Template: {template.get("name", "")}
     return slugify(idea)
 
 
-def plan_project(idea: str, template_id: str | None = None) -> dict:
+def plan_project(
+    idea: str,
+    template_id: str | None = None,
+    pack_id: str | None = None,
+) -> dict:
     """
-    Build a project plan from an idea, optionally anchored to a curated template.
+    Build a project plan from an idea, optionally anchored to a pack or template.
 
-    When template_id is set:
-    - files and stack come from the template
+    pack_id and template_id are mutually exclusive — both set raises ValueError.
+
+    When pack_id or template_id is set:
+    - files and stack come from the pack/template
     - project_name is derived deterministically via slugify (no API key required)
     - if an LLM is configured and not offline, AI may refine project_name only
 
-    Without template_id: full AI planning (requires OPENAI_API_KEY or OPENAI_BASE_URL),
-    unless offline — offline without template_id raises ValueError.
+    Without either: full AI planning (requires OPENAI_API_KEY or OPENAI_BASE_URL),
+    unless offline — offline without pack_id or template_id raises ValueError.
     """
-    if CREER_OFFLINE and not template_id:
+    if pack_id and template_id:
+        raise ValueError("Provide pack_id or template_id, not both")
+
+    if CREER_OFFLINE and not pack_id and not template_id:
         raise ValueError(
-            "Offline mode requires template_id. Pass a curated template_id "
-            "(see GET /templates) — AI planning is disabled when CREER_OFFLINE is set."
+            "Offline mode requires pack_id or template_id. Pass a pack_id "
+            "(see GET /packs) or template_id (see GET /templates) — AI planning "
+            "is disabled when CREER_OFFLINE is set."
         )
+
+    if pack_id:
+        pack = get_pack(pack_id)
+        if pack is None:
+            raise ValueError(f"Unknown pack_id: {pack_id!r}")
+
+        plan = apply_pack(pack_id, idea)
+
+        if _llm_configured() and not CREER_OFFLINE:
+            plan["project_name"] = _ai_name_project(idea, pack)
+
+        return plan
 
     if template_id:
         tmpl = get_template(template_id)
@@ -121,10 +144,11 @@ def plan_project(idea: str, template_id: str | None = None) -> dict:
         return plan
 
     if not _llm_configured() and not CREER_OFFLINE:
-        # No LLM endpoint and no template — cannot plan with AI
+        # No LLM endpoint and no pack/template — cannot plan with AI
         raise ValueError(
-            "OPENAI_API_KEY (or OPENAI_BASE_URL) is not set. Provide a template_id "
-            "for template-only planning, or set CREER_OFFLINE=1 with a template_id."
+            "OPENAI_API_KEY (or OPENAI_BASE_URL) is not set. Provide a pack_id "
+            "or template_id for pack/template-only planning, or set "
+            "CREER_OFFLINE=1 with a pack_id or template_id."
         )
 
     return _ai_plan(idea)

@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import {
   createGitHubRepo,
   fetchBakeins,
+  fetchPacks,
   fetchTemplates,
   formatAxiosError,
   postGenerate,
@@ -11,10 +12,12 @@ import {
   type CiBakein,
   type GenerateResponse,
   type LicenseBakein,
+  type Pack,
   type PlanResponse,
   type QualityIssue,
   type Template,
 } from './api';
+import { showContentPreviewAndConfirm } from './contentPreview';
 import { addRemoteAndPush, ensureGitRepo, initGit } from './git';
 import { showPlanPreviewAndConfirm } from './preview';
 import { resolveGitHubToken } from './secrets';
@@ -23,6 +26,7 @@ import {
   streamGenerate,
   type StreamProgressEvent,
 } from './streamGenerate';
+import { pickWorkspaceRoot } from './workspace';
 import {
   assertSafeProjectName,
   findConflicts,
@@ -38,6 +42,11 @@ export interface ScaffoldOptions {
   /** Use chat-style InputBox placeholder (/creer …). */
   fromChat?: boolean;
 }
+
+export type SourcePick =
+  | { kind: 'ai' }
+  | { kind: 'template'; id: string }
+  | { kind: 'pack'; id: string };
 
 const LICENSE_FALLBACK: Array<{ id: LicenseBakein; name: string }> = [
   { id: 'mit', name: 'MIT' },
@@ -81,33 +90,78 @@ async function promptForIdea(fromChat: boolean, initial?: string): Promise<strin
   return stripCreerPrefix(value);
 }
 
-async function pickTemplate(templates: Template[]): Promise<string | undefined | null> {
-  // null = cancelled; undefined = AI plan (no template); string = template id
-  const items: Array<vscode.QuickPickItem & { templateId?: string }> = [
+/**
+ * QuickPick: AI plan | built-in templates | packs.
+ * Returns null if cancelled.
+ */
+async function pickSource(
+  templates: Template[],
+  packs: Pack[]
+): Promise<SourcePick | null> {
+  type Item = vscode.QuickPickItem & {
+    kindSelect?: SourcePick['kind'];
+    sourceId?: string;
+  };
+
+  const items: Item[] = [
     {
       label: 'AI plan (no template)',
       description: 'Let Creer choose the stack and file layout',
-      templateId: undefined,
+      kindSelect: 'ai',
     },
-    ...templates.map((t) => ({
-      label: t.name,
-      description: t.stack,
-      detail: t.description,
-      templateId: t.id,
-    })),
   ];
 
+  if (templates.length > 0) {
+    items.push({
+      label: 'Built-in templates',
+      kind: vscode.QuickPickItemKind.Separator,
+    });
+    for (const t of templates) {
+      items.push({
+        label: t.name,
+        description: t.stack,
+        detail: t.description,
+        kindSelect: 'template',
+        sourceId: t.id,
+      });
+    }
+  }
+
+  if (packs.length > 0) {
+    items.push({
+      label: 'Packs',
+      kind: vscode.QuickPickItemKind.Separator,
+    });
+    for (const p of packs) {
+      const versionNote = p.version ? ` v${p.version}` : '';
+      items.push({
+        label: `[pack] ${p.name}`,
+        description: `${p.stack}${versionNote}`,
+        detail: p.description,
+        kindSelect: 'pack',
+        sourceId: p.id,
+      });
+    }
+  }
+
   const picked = await vscode.window.showQuickPick(items, {
-    placeHolder: 'Select a template or AI plan',
+    placeHolder: 'Select AI plan, template, or pack',
     ignoreFocusOut: true,
     matchOnDescription: true,
     matchOnDetail: true,
   });
 
-  if (!picked) {
+  if (!picked || picked.kind === vscode.QuickPickItemKind.Separator) {
     return null;
   }
-  return picked.templateId;
+
+  if (picked.kindSelect === 'template' && picked.sourceId) {
+    return { kind: 'template', id: picked.sourceId };
+  }
+  if (picked.kindSelect === 'pack' && picked.sourceId) {
+    return { kind: 'pack', id: picked.sourceId };
+  }
+  return { kind: 'ai' };
 }
 
 function isLicenseBakein(v: string): v is LicenseBakein {
@@ -314,15 +368,34 @@ function reportQualityIssues(quality: QualityIssue[] | undefined): void {
   );
 }
 
+function sourceToIds(source: SourcePick): {
+  templateId?: string;
+  packId?: string;
+} {
+  if (source.kind === 'template') {
+    return { templateId: source.id };
+  }
+  if (source.kind === 'pack') {
+    return { packId: source.id };
+  }
+  return {};
+}
+
 async function generateWithOptionalStream(
   idea: string,
   plan: PlanResponse,
-  templateId: string | undefined,
+  source: SourcePick,
   useStreaming: boolean,
   bakeins: BakeinOptions
 ): Promise<GenerateResponse> {
+  const { templateId, packId } = sourceToIds(source);
+  const resolvedTemplateId = plan.template_id ?? templateId;
+  const resolvedPackId = plan.pack_id ?? packId;
+
+  // pack_id and template_id are mutually exclusive
   const genOpts = {
-    templateId: plan.template_id ?? templateId,
+    templateId: resolvedPackId ? undefined : resolvedTemplateId,
+    packId: resolvedPackId,
     plan,
     bakeins,
   };
@@ -354,6 +427,7 @@ async function generateWithOptionalStream(
           return await streamGenerate({
             idea,
             templateId: genOpts.templateId,
+            packId: genOpts.packId,
             plan: genOpts.plan,
             bakeins: genOpts.bakeins,
             signal: controller.signal,
@@ -394,8 +468,8 @@ export async function runScaffoldFlow(options: ScaffoldOptions): Promise<void> {
     return;
   }
 
-  const workspaceFolders = vscode.workspace.workspaceFolders;
-  if (!workspaceFolders) {
+  const rootPath = await pickWorkspaceRoot();
+  if (!rootPath) {
     vscode.window.showErrorMessage('Open a workspace folder first.');
     return;
   }
@@ -404,11 +478,12 @@ export async function runScaffoldFlow(options: ScaffoldOptions): Promise<void> {
   const shouldInitGit = config.get<boolean>('initGit') ?? true;
   const previewBeforeWrite = config.get<boolean>('previewBeforeWrite') ?? true;
   const useStreaming = config.get<boolean>('useStreaming') ?? true;
-  const rootPath = workspaceFolders[0].uri.fsPath;
 
   try {
-    // 1) Templates
+    // 1) Templates + packs
     let templates: Template[] = [];
+    let packs: Pack[] = [];
+
     try {
       templates = await vscode.window.withProgress(
         {
@@ -425,11 +500,25 @@ export async function runScaffoldFlow(options: ScaffoldOptions): Promise<void> {
       );
     }
 
-    const templatePick = await pickTemplate(templates);
-    if (templatePick === null) {
+    try {
+      packs = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Creer: loading packs…',
+          cancellable: false,
+        },
+        () => fetchPacks()
+      );
+    } catch {
+      // Backend /packs may not be ready yet — show templates only.
+      packs = [];
+    }
+
+    const source = await pickSource(templates, packs);
+    if (!source) {
       return;
     }
-    const templateId = templatePick; // string | undefined
+    const { templateId, packId } = sourceToIds(source);
 
     // 2) Plan
     const plan: PlanResponse = await vscode.window.withProgress(
@@ -438,7 +527,7 @@ export async function runScaffoldFlow(options: ScaffoldOptions): Promise<void> {
         title: 'Creer: planning project…',
         cancellable: false,
       },
-      () => postPlan(idea, templateId)
+      () => postPlan(idea, { templateId, packId })
     );
 
     if (!plan.project_name || !Array.isArray(plan.files)) {
@@ -446,12 +535,14 @@ export async function runScaffoldFlow(options: ScaffoldOptions): Promise<void> {
       return;
     }
 
-    // Ensure template_id is on the plan when selected
     if (templateId && !plan.template_id) {
       plan.template_id = templateId;
     }
+    if (packId && !plan.pack_id) {
+      plan.pack_id = packId;
+    }
 
-    // 3) Preview / confirm
+    // 3) Plan preview / confirm (tree) before generate
     if (previewBeforeWrite) {
       const confirmed = await showPlanPreviewAndConfirm(plan, idea);
       if (!confirmed) {
@@ -471,7 +562,7 @@ export async function runScaffoldFlow(options: ScaffoldOptions): Promise<void> {
       generated = await generateWithOptionalStream(
         idea,
         plan,
-        templateId,
+        source,
         useStreaming,
         bakeins
       );
@@ -515,21 +606,31 @@ export async function runScaffoldFlow(options: ScaffoldOptions): Promise<void> {
       return;
     }
 
-    // 6) Conflict resolution
+    // 6) Content preview / diff before write
+    const contentConfirmed = await showContentPreviewAndConfirm(
+      projectName,
+      projectPath,
+      files
+    );
+    if (!contentConfirmed) {
+      return;
+    }
+
+    // 7) Conflict resolution
     const conflicts = findConflicts(projectPath, files);
     const resolution = await resolveConflicts(conflicts);
     if (resolution === 'cancel') {
       return;
     }
 
-    // 7) Write
+    // 8) Write
     const { written, skipped } = writeProjectFiles(projectPath, files, resolution);
     if (written === 0 && skipped === 0) {
       vscode.window.showWarningMessage('No files were written.');
       return;
     }
 
-    // 8) Git init
+    // 9) Git init
     if (shouldInitGit) {
       try {
         await initGit(projectPath);
@@ -539,7 +640,7 @@ export async function runScaffoldFlow(options: ScaffoldOptions): Promise<void> {
       }
     }
 
-    // 9) GitHub remote (optional)
+    // 10) GitHub remote (optional)
     await maybeCreateGitHubRemote(context, projectPath, projectName, idea);
 
     const skipNote = skipped > 0 ? ` (${skipped} existing skipped)` : '';

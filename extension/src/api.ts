@@ -9,11 +9,21 @@ export interface Template {
   files: string[];
 }
 
+export interface Pack {
+  id: string;
+  name: string;
+  description: string;
+  stack: string;
+  version?: string;
+  files: string[];
+}
+
 export interface PlanResponse {
   project_name: string;
   stack?: string;
   files: string[];
   template_id?: string;
+  pack_id?: string;
   description?: string;
 }
 
@@ -48,6 +58,7 @@ export interface GenerateResponse {
   stack?: string;
   files: Record<string, string>;
   template_id?: string;
+  pack_id?: string;
   quality?: QualityIssue[];
 }
 
@@ -57,8 +68,14 @@ export interface GitHubCreateRepoResponse {
   full_name: string;
 }
 
+export interface PlanOptions {
+  templateId?: string;
+  packId?: string;
+}
+
 export interface GenerateOptions {
   templateId?: string;
+  packId?: string;
   plan?: PlanResponse;
   jobId?: string;
   bakeins?: BakeinOptions;
@@ -94,6 +111,14 @@ export async function fetchTemplates(): Promise<Template[]> {
   return response.data.templates ?? [];
 }
 
+export async function fetchPacks(): Promise<Pack[]> {
+  const backendUrl = getBackendUrl();
+  const response = await axios.get<{ packs: Pack[] }>(`${backendUrl}/packs`, {
+    timeout: 30_000,
+  });
+  return response.data.packs ?? [];
+}
+
 export async function fetchBakeins(): Promise<BakeinsResponse> {
   const backendUrl = getBackendUrl();
   const response = await axios.get<BakeinsResponse>(`${backendUrl}/bakeins`, {
@@ -115,11 +140,13 @@ export async function postCancel(jobId: string): Promise<{ cancelled: true }> {
   return response.data;
 }
 
-export async function postPlan(idea: string, templateId?: string): Promise<PlanResponse> {
+export async function postPlan(idea: string, options?: PlanOptions): Promise<PlanResponse> {
   const backendUrl = getBackendUrl();
-  const body: { idea: string; template_id?: string } = { idea };
-  if (templateId) {
-    body.template_id = templateId;
+  const body: { idea: string; template_id?: string; pack_id?: string } = { idea };
+  if (options?.packId) {
+    body.pack_id = options.packId;
+  } else if (options?.templateId) {
+    body.template_id = options.templateId;
   }
   const response = await axios.post<PlanResponse>(`${backendUrl}/plan`, body, {
     timeout: 300_000,
@@ -135,11 +162,14 @@ export async function postGenerate(
   const body: {
     idea: string;
     template_id?: string;
+    pack_id?: string;
     plan?: PlanResponse;
     job_id?: string;
     bakeins?: BakeinOptions;
   } = { idea };
-  if (options?.templateId) {
+  if (options?.packId) {
+    body.pack_id = options.packId;
+  } else if (options?.templateId) {
     body.template_id = options.templateId;
   }
   if (options?.plan) {
