@@ -28,6 +28,7 @@ export type StreamDoneEvent = {
   stack: string;
   files: Record<string, string>;
   template_id?: string;
+  pack_id?: string;
   quality?: QualityIssue[];
 };
 
@@ -52,6 +53,7 @@ export type StreamProgressEvent =
 export interface StreamGenerateOptions {
   idea: string;
   templateId?: string;
+  packId?: string;
   plan?: PlanResponse;
   bakeins?: BakeinOptions;
   jobId?: string;
@@ -137,11 +139,14 @@ export function streamGenerate(options: StreamGenerateOptions): Promise<Generate
   const body: {
     idea: string;
     template_id?: string;
+    pack_id?: string;
     plan?: PlanResponse;
     job_id?: string;
     bakeins?: BakeinOptions;
   } = { idea: options.idea };
-  if (options.templateId) {
+  if (options.packId) {
+    body.pack_id = options.packId;
+  } else if (options.templateId) {
     body.template_id = options.templateId;
   }
   if (options.plan) {
@@ -272,6 +277,9 @@ export function streamGenerate(options: StreamGenerateOptions): Promise<Generate
         };
         if (ev.template_id) {
           doneResult.template_id = ev.template_id;
+        }
+        if (ev.pack_id) {
+          doneResult.pack_id = ev.pack_id;
         }
         if (ev.quality) {
           doneResult.quality = ev.quality;

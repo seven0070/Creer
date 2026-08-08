@@ -2,7 +2,7 @@
   "name": "creer",
   "displayName": "Creer",
   "description": "AI-powered repo scaffolding inside your workspace",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "publisher": "creer",
   "engines": {
     "vscode": "^1.85.0"
@@ -96,6 +96,16 @@
           "type": "boolean",
           "default": true,
           "description": "When true, QuickPick license and CI each run; when false, use creer.license and creer.ciPreset"
+        },
+        "creer.contentPreview": {
+          "type": "boolean",
+          "default": true,
+          "description": "After generate, before write, show a content preview/diff and confirm"
+        },
+        "creer.defaultWorkspaceFolder": {
+          "type": "string",
+          "default": "",
+          "description": "Optional workspace folder name or path hint for multi-root workspaces; empty prompts when multiple folders are open"
         }
       }
     }

@@ -1,0 +1,13 @@
+id: express-ts
+name: Express TypeScript
+description: Express API in TypeScript with tsconfig and basic router.
+stack: Node.js + Express + TypeScript
+version: "1.0.0"
+files:
+  - package.json
+  - tsconfig.json
+  - src/index.ts
+  - src/routes/health.ts
+  - README.md
+  - .gitignore
+  - .env.example

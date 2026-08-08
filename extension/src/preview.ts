@@ -8,9 +8,12 @@ function buildFileTreeMarkdown(files: string[]): string {
 
 export function buildPlanPreviewMarkdown(plan: PlanResponse, idea: string): string {
   const stack = plan.stack?.trim() || '(unspecified)';
-  const templateLine = plan.template_id
-    ? `\n**Template:** \`${plan.template_id}\`\n`
-    : '\n**Template:** AI plan (no template)\n';
+  let sourceLine = '\n**Template:** AI plan (no template)\n';
+  if (plan.pack_id) {
+    sourceLine = `\n**Pack:** \`${plan.pack_id}\`\n`;
+  } else if (plan.template_id) {
+    sourceLine = `\n**Template:** \`${plan.template_id}\`\n`;
+  }
   const description = plan.description?.trim()
     ? `\n**Description:** ${plan.description.trim()}\n`
     : '';
@@ -23,7 +26,7 @@ export function buildPlanPreviewMarkdown(plan: PlanResponse, idea: string): stri
     `**Project:** \`${plan.project_name}\``,
     '',
     `**Stack:** ${stack}`,
-    templateLine,
+    sourceLine,
     description,
     `**Files (${plan.files.length}):**`,
     '',
