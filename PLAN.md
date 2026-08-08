@@ -7,12 +7,12 @@
 - **v0.3** — Streaming, offline/local models, bake-ins, SecretStorage + GIT_ASKPASS
 - **v0.4** — Stream cancel, selectable license/CI bake-ins, quality gates
 - **v0.5** — Content diff preview before write, multi-root workspace targeting, installable JSON/YAML template packs (`GET /packs`, `pack_id`)
-- **v0.6** — Pack marketplace UI + install from URL, side-by-side conflict diffs (`creer-generated`), Open VSX / Marketplace publish packaging
+- **v0.6** — Pack marketplace + remote URL install/delete, side-by-side conflict diffs (`creer-generated`), Open VSX / Marketplace publish packaging
 
 ## Optional next
 
-- Backend marketplace catalog + remote pack install/delete endpoints (extension already codes to contracts)
 - Extension icon + signed publisher release
+- Hosted pack registry (beyond static `/marketplace` catalog)
 
 ## Non-goals
 
